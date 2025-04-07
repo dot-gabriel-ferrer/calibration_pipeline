@@ -1,10 +1,15 @@
 # Author: Elías Gabriel Ferrer Jorge
 
 """
-Step 4: Generate synthetic bias frames based on the fitted model and desired temperature(s).
+Step 4: Generate Synthetic Bias Frames from Fitted Model
 
-This step uses the pixel-wise linear model (bias = a + b*T) to generate synthetic
-bias frames for given temperature values.
+This module uses the fitted pixel-wise bias model parameters (intercept and slope maps)
+to generate synthetic bias images for any given temperature.
+
+The model assumes:
+    bias(T) = a + b*T
+
+These synthetic frames can be used for calibration when no matching master bias exists.
 """
 
 import os
@@ -12,28 +17,46 @@ import numpy as np
 from astropy.io import fits
 from tqdm import tqdm
 
-
 def generate_synthetic_bias(a_map: np.ndarray, b_map: np.ndarray, temperature: float) -> np.ndarray:
     """
-    Generates a synthetic bias frame for a given temperature using the model maps.
+    Compute a synthetic bias image for a specific temperature.
 
-    :param a_map: 2D array of intercepts (bias offset).
-    :param b_map: 2D array of temperature coefficients.
-    :param temperature: Temperature at which to generate the synthetic bias.
-    :return: 2D array representing the synthetic bias frame.
+    Parameters:
+    ------------
+    a_map : np.ndarray
+        Pixel-wise bias offset at 0°C (intercept map).
+
+    b_map : np.ndarray
+        Pixel-wise temperature sensitivity (slope map).
+
+    temperature : float
+        Temperature at which to evaluate the model.
+
+    Returns:
+    --------
+    np.ndarray
+        2D synthetic bias image evaluated at the given temperature.
     """
     return a_map + b_map * temperature
-
 
 def generate_multiple_synthetic_biases(a_map: np.ndarray, b_map: np.ndarray,
                                        temperatures: list, output_dir: str):
     """
-    Generates and saves synthetic bias frames for a list of input temperatures.
+    Generate and save synthetic bias images for a list of temperatures.
 
-    :param a_map: 2D array of model intercepts.
-    :param b_map: 2D array of temperature coefficients.
-    :param temperatures: List of temperature values to generate synthetic bias frames for.
-    :param output_dir: Directory where synthetic FITS files will be saved.
+    Parameters:
+    ------------
+    a_map : np.ndarray
+        Model intercepts (bias level at T=0).
+
+    b_map : np.ndarray
+        Model slopes (rate of bias change with T).
+
+    temperatures : list
+        List of float values for which synthetic bias frames will be generated.
+
+    output_dir : str
+        Directory where the synthetic FITS files will be stored.
     """
     print("\n[Step 4] Generating synthetic bias frames...")
     os.makedirs(output_dir, exist_ok=True)

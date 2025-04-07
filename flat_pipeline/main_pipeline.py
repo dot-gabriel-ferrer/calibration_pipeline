@@ -1,172 +1,228 @@
-# Author: Elías Gabriel Ferrer Jorge
-
-"""
-Step 7: Evaluate the flat model by comparing synthetic flats against real master flats.
-
-1. Loads the fitted model maps (A, B, C) from step6.
-2. Iterates over each real master flat (for various T, t_exp).
-3. Generates a synthetic flat using the model and calculates:
-   - MAE (Mean Absolute Error)
-   - MAPE (Mean Absolute Percentage Error)
-   - Global metrics (average, std)
-4. Optionally saves results as FITS or PNG for visualization.
-
-Assumes a linear model of the form:
-
-   flat(T, t_exp) = A + B*(T - T_ref) + C*(t_exp - exp_ref)
-
-(Adapt if your model is different.)
-"""
+# main_pipeline.py
+# Autor: Elías Gabriel Ferrer Jorge
 
 import os
+from glob import glob
 import numpy as np
 from astropy.io import fits
-from tqdm import tqdm
-import matplotlib.pyplot as plt
+
+from .flat_pipeline.steps.step1_load_data import load_flat_files
+from .flat_pipeline.steps.step2_reduce_with_dark import reduce_flats_with_darks
+from .flat_pipeline.steps.step3_normalize_flats import normalize_flats_in_dir, normalize_flat
+from .flat_pipeline.steps.step4_vignetting_correction import correct_vignetting_in_dir
+from .flat_pipeline.steps.step5_make_master_flat import generate_master_flats
+from .flat_pipeline.steps.step6_fit_flat_model import run_flat_model_fitting
 
 
-def load_flat_model(model_dir: str):
+def run_flat_pipeline(basepath,
+                      output_dir,
+                      dark_files,
+                      mode,
+                      norm_method="max",
+                      lensfun_params=None,
+                      radial_params=None,
+                      empirical_params=None,
+                      master_grouping=('FILTER', 'temperature', 'exposure'),
+                      master_method='median',
+                      T_ref=0.0,
+                      exp_ref=0.0,
+                      save_eval_fits=False,
+                      save_eval_plots=True,
+                      flat_type="lab"):
     """
-    Loads the parametric model maps: flat_A_map.fits, flat_B_map.fits, flat_C_map.fits.
-    Returns them as 2D numpy arrays (A_map, B_map, C_map).
+    Orquesta los pasos del pipeline, admitiendo distintos 'mode' y 'flat_type'.
+    En particular, si flat_type=="sky", se genera un 'master median flat' 
+    adicional a partir de los flats reducidos.
     """
-    pathA = os.path.join(model_dir, "flat_A_map.fits")
-    pathB = os.path.join(model_dir, "flat_B_map.fits")
-    pathC = os.path.join(model_dir, "flat_C_map.fits")
 
-    if not (os.path.exists(pathA) and os.path.exists(pathB) and os.path.exists(pathC)):
-        raise FileNotFoundError("Missing one or more model maps in the specified directory.")
+    # Paso 0: Crear la estructura de directorios
+    print("\n[Step 0: Flat Pipeline] Creating output directory structure...")
+    dirs_to_create = [
+        output_dir,
+        os.path.join(output_dir, "flat_reduced"),
+        os.path.join(output_dir, "flat_normalized"),
+        os.path.join(output_dir, "flat_vignetting_corrected"),
+        os.path.join(output_dir, "master_flat"),
+    ]
+    # Solo creamos el directorio 'sky_median' si flat_type es sky
+    if flat_type == "sky":
+        dirs_to_create.append(os.path.join(output_dir, "sky_median"))
 
-    A_map = fits.getdata(pathA).astype(np.float32)
-    B_map = fits.getdata(pathB).astype(np.float32)
-    C_map = fits.getdata(pathC).astype(np.float32)
+    for d in dirs_to_create:
+        os.makedirs(d, exist_ok=True)
 
-    return A_map, B_map, C_map
+    if mode in [
+        "full", "full_no_vignetting", "reduce_only",
+        "normalize_only", "vignetting_only", "make_master",
+        "fit_model", "evaluate_model"
+    ]:
+
+        # --- STEP 1: Cargar flats (si el modo lo requiere) ---
+        print("\n[Step 1: Flat Pipeline] Loading flat frames...")
+        manager, flat_entries = (None, [])
+        if mode in [
+            "full", "full_no_vignetting", "reduce_only",
+            "normalize_only", "vignetting_only", "make_master",
+            "fit_model"
+        ]:
+            manager, flat_entries = load_flat_files(basepath)
+            if len(flat_entries) == 0:
+                raise RuntimeError(f"No flat files found in '{basepath}'.")
+
+        # --- STEP 1b: Pre‐procesar (opcional según flat_type) ---
+        if flat_type == "sky":
+            flat_entries = preprocess_sky_flats(flat_entries)
+        elif flat_type == "satellite":
+            flat_entries = preprocess_satellite_flats(flat_entries)
+        # "lab" no hace nada
+
+        # --- STEP 2: Restar darks ---
+        if mode in ["full", "full_no_vignetting", "reduce_only"]:
+            print(f"[Step 2] Processing {len(flat_entries)} flats with dark subtraction...")
+            reduce_flats_with_darks(
+                flat_entries,
+                dark_files,
+                output_dir=os.path.join(output_dir, "flat_reduced")
+            )
+
+        # --- [Step 2b] Generar master median flat específico de sky, si aplica ---
+        if flat_type == "sky" and mode in ["full", "full_no_vignetting", "reduce_only"]:
+            sky_median_dir = os.path.join(output_dir, "sky_median")
+            reduced_dir = os.path.join(output_dir, "flat_reduced")
+
+            # Creamos el master median
+            median_sky_path = create_median_sky_flat(
+                reduced_dir=reduced_dir,
+                sky_median_dir=sky_median_dir
+            )
+
+            # Opcional: Normalizar también ese master median (usando la misma lógica de Step3).
+            # Si lo deseas, hazlo aquí:
+            if median_sky_path is not None and os.path.exists(median_sky_path):
+                # Nombre de salida para la versión normalizada
+                median_norm_path = os.path.join(
+                    sky_median_dir,
+                    "master_flat_sky_median_normalized.fits"
+                )
+                # Usa la misma función 'normalize_flat' de step3
+                normalize_flat(median_sky_path, 
+                               median_norm_path, 
+                               method=norm_method)
+                print(f"[Sky] Master median sky flat normalized saved to: {median_norm_path}")
+
+        # --- STEP 3: Normalizar flats ---
+        if mode in ["full", "full_no_vignetting", "normalize_only"]:
+            print(f"[Step 3] Normalizing by {norm_method.upper()}.")
+            normalize_flats_in_dir(
+                raw_reduced_dir=os.path.join(output_dir, "flat_reduced"),
+                output_dir=os.path.join(output_dir, "flat_normalized"),
+                method=norm_method
+            )
+
+        # --- STEP 4: Corregir viñeteo ---
+        if mode == "full":
+            print("[Step 4] Correcting vignetting (full mode).")
+            correct_vignetting_in_dir(
+                input_dir=os.path.join(output_dir, "flat_normalized"),
+                output_dir=os.path.join(output_dir, "flat_vignetting_corrected"),
+                lensfun_params=lensfun_params,
+                radial_params=radial_params,
+                empirical_params=empirical_params
+            )
+        elif mode == "vignetting_only":
+            correct_vignetting_in_dir(
+                input_dir=basepath,
+                output_dir=os.path.join(output_dir, "flat_vignetting_corrected"),
+                lensfun_params=lensfun_params,
+                radial_params=radial_params,
+                empirical_params=empirical_params
+            )
+
+        # --- STEP 5: Generar Master Flats ---
+        if mode in ["full", "make_master"]:
+            corrected_files = glob(os.path.join(output_dir, "flat_vignetting_corrected", "*.fits"))
+            fallback_files = glob(os.path.join(output_dir, "flat_normalized", "*.fits"))
+
+            corrected_entries = build_entries_from_filenames(corrected_files)
+            fallback_entries = build_entries_from_filenames(fallback_files)
+
+            generate_master_flats(
+                flat_entries=corrected_entries,
+                output_dir=os.path.join(output_dir, "master_flat"),
+                grouping=master_grouping,
+                method=master_method,
+                fallback_entries=fallback_entries
+            )
+
+        # --- STEP 6: Ajustar modelo de flat ---
+        if mode in ["full", "fit_model"]:
+            run_flat_model_fitting(
+                master_flat_dir=os.path.join(output_dir, "master_flat"),
+                T_ref=T_ref,
+                exp_ref=exp_ref,
+                output_dir=os.path.join(output_dir, "flat_model_fits")
+            )
+
+        if mode == "evaluate_model":
+            pass
+
+    else:
+        raise ValueError(f"Unsupported mode: {mode}")
 
 
-def generate_synthetic_flat(A_map: np.ndarray, B_map: np.ndarray, C_map: np.ndarray,
-                            T: float, t_exp: float, T_ref=0.0, exp_ref=0.0) -> np.ndarray:
+# ============================================================================
+# FUNCIONES DE PRE‐PROCESADO Y UTILIDADES
+# ============================================================================
+def preprocess_sky_flats(flat_entries):
+    print("[Info] Pre-processing sky flats: combining or removing star patterns...")
+    # Aquí iría tu lógica real de limpieza de fuentes, etc.
+    return flat_entries
+
+def preprocess_satellite_flats(flat_entries):
+    print("[Info] Pre-processing satellite flats: cosmic removal, LED pattern correction, etc.")
+    return flat_entries
+
+def build_entries_from_filenames(fits_list):
+    entries = []
+    for f in fits_list:
+        entry = {
+            "original_path": f,
+            "temperature": "UNKNOWN",
+            "exposure": "UNKNOWN",
+            "FILTER": "UNKNOWN"
+        }
+        entries.append(entry)
+    return entries
+
+def create_median_sky_flat(reduced_dir, sky_median_dir):
     """
-    Generates a synthetic flat given the model parameters and a target (T, t_exp).
-
-    Model used:
-       flat_ij(T, t_exp) = A_ij + B_ij*(T - T_ref) + C_ij*(t_exp - exp_ref)
+    Combina todos los .fits en 'reduced_dir' mediante mediana
+    y guarda el resultado en 'sky_median_dir' como master_flat_sky_median.fits.
+    Devuelve la ruta al archivo creado o None si no había ficheros.
     """
-    return A_map + B_map*(T - T_ref) + C_map*(t_exp - exp_ref)
+    pattern = os.path.join(reduced_dir, "*.fits")
+    files = glob(pattern)
+    if not files:
+        print(f"[Sky] No reduced flats found to create median sky flat in {reduced_dir}")
+        return None
 
-
-def evaluate_flat_model(master_dir: str, model_dir: str, output_dir: str,
-                        T_ref=0.0, exp_ref=0.0, save_fits=False, save_plots=True):
-    """
-    Main function to evaluate the model by comparing synthetic vs. real master flats.
-
-    :param master_dir: Directory with real master flats (from step5).
-    :param model_dir: Directory with flat_A_map.fits, flat_B_map.fits, flat_C_map.fits.
-    :param output_dir: Where to save evaluation outputs (FITS/plots).
-    :param T_ref: Reference temperature used when fitting the model.
-    :param exp_ref: Reference exposure used when fitting the model.
-    :param save_fits: Whether to save difference, MAE, MAPE as FITS.
-    :param save_plots: Whether to generate PNG images of difference, MAE, MAPE.
-    """
-    print("\n[Step 7] Evaluating Flat Model against real master flats...")
-
-    os.makedirs(output_dir, exist_ok=True)
-    A_map, B_map, C_map = load_flat_model(model_dir)
-
-    fits_files = [f for f in os.listdir(master_dir) if f.lower().endswith(".fits")]
-    results = []
-
-    for fname in tqdm(fits_files, desc="Evaluating", ncols=80):
-        path = os.path.join(master_dir, fname)
+    stack = []
+    for path in files:
         with fits.open(path) as hdul:
-            real_data = hdul[0].data.astype(np.float32)
-            hdr = hdul[0].header
+            data = hdul[0].data.astype(np.float32)
+            stack.append(data)
 
-        # Attempt to parse T, exp from filename or header
-        # e.g. "master_flat_R_T10.0_E60.0.fits"
-        parts = fname.split("_")
-        if len(parts) >= 4:
-            Tpart = parts[3]  # T10.0
-            Epart = parts[4]  # E60.0.fits
-        else:
-            # fallback
-            Tpart = f"T{hdr.get('T_AVG', 0.0):.1f}"
-            Epart = f"E{hdr.get('E_AVG', 0.0):.1f}"
+    median_data = np.median(np.stack(stack, axis=0), axis=0)
 
-        # parse
-        try:
-            temp_val = float(Tpart.replace("T","").replace(".fits",""))
-        except:
-            temp_val = hdr.get('T_AVG', 0.0)
-        try:
-            exp_val = float(Epart.replace("E","").replace(".fits",""))
-        except:
-            exp_val = hdr.get('E_AVG', 0.0)
+    out_path = os.path.join(sky_median_dir, "master_flat_sky_median.fits")
+    # Cabecera mínima
+    h = fits.Header()
+    h["SKYPIPE"] = ("median", "Combined sky flats (mediana post-dark-subtraction)")
 
-        # Generate synthetic
-        synthetic = generate_synthetic_flat(A_map, B_map, C_map,
-                                            T=temp_val, t_exp=exp_val,
-                                            T_ref=T_ref, exp_ref=exp_ref)
+    # Guardamos
+    hdu = fits.PrimaryHDU(data=median_data, header=h)
+    hdul_out = fits.HDUList([hdu])
+    hdul_out.writeto(out_path, overwrite=True)
 
-        # Compute metrics
-        diff = real_data - synthetic
-        mae = np.abs(diff)
-        # Avoid division by zero
-        denom = np.where(real_data == 0.0, 1.0, real_data)
-        mape = np.abs(diff / denom) * 100.0
-
-        mae_mean = float(np.nanmean(mae))
-        mape_mean = float(np.nanmean(mape))
-
-        results.append({
-            'filename': fname,
-            'temperature': temp_val,
-            'exposure': exp_val,
-            'mae': mae_mean,
-            'mape': mape_mean
-        })
-
-        # Save FITS if requested
-        if save_fits:
-            diff_path  = os.path.join(output_dir, fname.replace(".fits","_diff.fits"))
-            mae_path   = os.path.join(output_dir, fname.replace(".fits","_mae.fits"))
-            mape_path  = os.path.join(output_dir, fname.replace(".fits","_mape.fits"))
-
-            fits.writeto(diff_path, diff.astype(np.float32), overwrite=True)
-            fits.writeto(mae_path, mae.astype(np.float32), overwrite=True)
-            fits.writeto(mape_path, mape.astype(np.float32), overwrite=True)
-
-        # Save plots if requested
-        if save_plots:
-            import matplotlib.pyplot as plt
-            def plot_and_save(img, title, out_name, cmap='viridis', vmax=None):
-                plt.figure(figsize=(5,4))
-                plt.imshow(img, cmap=cmap, vmax=vmax)
-                plt.title(title)
-                plt.colorbar()
-                plt.tight_layout()
-                plt.savefig(os.path.join(output_dir, out_name), dpi=120)
-                plt.close()
-
-            # Diff
-            plot_and_save(diff, f"Diff (Real-Synth) T={temp_val:.1f}, Exp={exp_val:.1f}",
-                          fname.replace(".fits","_diff.png"), cmap='RdBu', vmax=None)
-            # MAE
-            plot_and_save(mae, f"MAE T={temp_val:.1f}, Exp={exp_val:.1f}",
-                          fname.replace(".fits","_mae.png"), cmap='hot', vmax=None)
-            # MAPE
-            plot_and_save(mape, f"MAPE T={temp_val:.1f}, Exp={exp_val:.1f}",
-                          fname.replace(".fits","_mape.png"), cmap='hot', vmax=100)
-
-    # Print summary
-    print("\n[Step 7] Summary of evaluation results:")
-    for r in results:
-        print(f" - {r['filename']}: T={r['temperature']} Exp={r['exposure']} -> MAE={r['mae']:.4f}, MAPE={r['mape']:.2f}%")
-
-    # Optionally save a CSV or JSON
-    # e.g.:
-    # import pandas as pd
-    # df = pd.DataFrame(results)
-    # df.to_csv(os.path.join(output_dir, "evaluation_metrics.csv"), index=False)
-
-    print("\n[Step 7] Evaluation complete.")
+    print(f"[Sky] Master median sky flat created: {out_path}")
+    return out_path

@@ -2,6 +2,31 @@
 
 """
 Run pipeline script for executing the bias model pipeline end-to-end.
+
+This command-line utility executes the complete temperature-dependent bias modeling pipeline,
+which includes the following steps:
+
+    1. Create necessary output directory structure.
+    2. Load and filter valid bias FITS files from a directory.
+    3. Generate master bias frames grouped by sensor temperature.
+    4. Fit a linear temperature-dependent model per pixel (bias = a + b*T).
+    5. Optionally generate synthetic biases using the model.
+    6. Evaluate model performance (e.g., MAE, MAPE) with plots and stats.
+
+Usage Example:
+    python run_pipeline.py \
+        --basepath /path/to/raw_bias_data \
+        --output-dir /path/to/output_results \
+        --hot-pixel-mask /path/to/hot_pixel_mask.fits \
+        --generate-set \
+        --save-eval-fits
+
+Arguments:
+    --basepath         Required. Directory containing raw bias FITS files.
+    --output-dir       Required. Output directory where results will be stored.
+    --hot-pixel-mask   Optional. Path to a FITS file with a hot pixel mask.
+    --generate-set     Flag. If set, generates synthetic bias frames for each temperature.
+    --save-eval-fits   Flag. If set, saves synthetic, MAE, and MAPE FITS in evaluation.
 """
 
 import argparse

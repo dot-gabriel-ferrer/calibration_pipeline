@@ -1,36 +1,46 @@
 # Author: Elías Gabriel Ferrer Jorge
 
 """
-Step 1: Load and filter bias observations from a dataset using the ObservationManager.
-This step prepares a list of valid bias files (short exposure calibration frames)
-to be used in model construction.
+Step 1: Load and Filter Bias Observations
+
+This module uses the ObservationManager to recursively scan a directory
+for bias calibration frames. It loads metadata, classifies each FITS file,
+and selects only short-exposure calibration frames marked as 'bias'.
+
+The filtered list of valid bias files is then passed downstream for modeling.
 """
 
 from steps.observation_manager.observation_manager import ObservationManager
 from tqdm import tqdm
 
-
 def load_bias_files(base_path: str):
     """
-    Loads and filters bias FITS files from the specified base directory.
+    Load and filter valid bias calibration files from a raw FITS dataset.
 
-    The ObservationManager is used to scan and organize all available FITS files,
-    then filters out the short-exposure calibration frames (bias frames).
+    The filtering is handled by the ObservationManager and targets files labeled:
+    - Category: CALIBRATION
+    - Subcategory: bias
+    - Exposure time: <= 0.1 seconds
+    - Extension: .fits only
 
-    :param base_path: Path to the directory containing raw FITS files.
-    :type base_path: str
-    :return: Tuple of (manager, bias_files):
-             - manager: The ObservationManager instance used for organizing.
-             - bias_files: List of filtered bias file entries (dicts).
-    :rtype: tuple[ObservationManager, list[dict]]
+    Parameters:
+    ------------
+    base_path : str
+        Path to the directory containing the raw FITS calibration files.
+
+    Returns:
+    --------
+    tuple[ObservationManager, list[dict]]
+        manager     : ObservationManager instance with all file metadata loaded.
+        bias_files  : List of filtered FITS entries (dicts) representing usable bias frames.
     """
     print("\n[Step 1] Loading and filtering bias observations...")
-    
-    # Initialize manager and organize files
+
+    # Load and classify all FITS files
     manager = ObservationManager(base_path=base_path)
     manager.load_and_organize()
 
-    # Filter short-exposure calibration files classified as 'bias'
+    # Select short-exposure bias frames
     bias_files = manager.filter_files(
         category='CALIBRATION',
         subcat='bias',
@@ -38,7 +48,5 @@ def load_bias_files(base_path: str):
         ext_filter='fits'
     )
 
-    # Show how many valid bias files were found
     print(f"[Step 1] Found {len(bias_files)} bias files.\n")
-    
     return manager, bias_files

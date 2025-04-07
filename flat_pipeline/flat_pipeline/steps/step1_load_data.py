@@ -9,7 +9,7 @@ and storing essential metadata such as temperature, exposure time, filter, etc.
 
 import os
 from tqdm import tqdm
-from steps.observation_manager.observation_manager import ObservationManager
+from .observation_manager.observation_manager import ObservationManager
 
 def load_flat_files(base_path: str, filter_keyword: str = "FILTER"):
     """
@@ -41,7 +41,7 @@ def load_flat_files(base_path: str, filter_keyword: str = "FILTER"):
     # (Adjust category/subcat if needed to match your classification)
     flat_files = manager.filter_files(
         category='CALIBRATION',
-        subcat='flat',
+        subcat='flats',
         ext_filter='fits'
     )
 
@@ -54,6 +54,6 @@ def load_flat_files(base_path: str, filter_keyword: str = "FILTER"):
         temp = entry.get('temperature', "N/A")
         exp_time = entry.get('exposure', "N/A")
         # Optionally print or store more detail
-        # print(f" - {entry['original_path']} | Filter={filt}, T={temp}°C, Exp={exp_time}s")
+        #print(f" - {entry['original_path']} | Filter={filt}, T={temp}°C, Exp={exp_time}s")
 
     return manager, flat_files

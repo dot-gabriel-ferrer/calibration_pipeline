@@ -13,7 +13,7 @@ import numpy as np
 from astropy.io import fits
 from tqdm import tqdm
 
-from steps.utils_scaling import load_fits_scaled_12bit
+from ..utils.utils_scaling import load_fits_scaled_12bit
 
 def group_flats_by_filter(flat_files, filter_keyword='FILTER'):
     """
@@ -100,7 +100,7 @@ def subtract_dark_from_flat(flat_entry, dark_entry, output_path):
 
 
 def reduce_flats_with_darks(flat_files, dark_files, output_dir,
-                            filter_keyword='FILTER', max_temp_diff=2.0, max_exp_diff=5.0):
+                            filter_keyword='FILTER', max_temp_diff=5.0, max_exp_diff=10.0):
     """
     For each flat, finds the best matching dark (closest T and exposure),
     subtracts it, and saves the result in 'output_dir'.
@@ -132,7 +132,9 @@ def reduce_flats_with_darks(flat_files, dark_files, output_dir,
                 continue
 
             # build output filename
-            file_name = os.path.basename(flat_entry['original_path']).replace(".fits", "_reduced.fits")
+            
+            file_name = os.path.basename(flat_entry['original_path']).replace(".fits", "_FLAT_REDUCED_WITH_DARK.fits")
             out_path = os.path.join(output_dir, file_name)
+        
 
             subtract_dark_from_flat(flat_entry, best_dark, out_path)
