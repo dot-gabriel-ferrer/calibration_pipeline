@@ -292,7 +292,14 @@ def convert_attempt(
 
 
 def gather_attempts(root: str, max_depth: int = 2) -> List[str]:
-    """Return all attempt directories within ``root`` up to ``max_depth`` levels."""
+    """Return all attempt directories within ``root`` up to ``max_depth`` levels.
+
+    Directories named ``attempt*`` are recognised as attempts.  Additionally, if
+    a directory contains a ``frames`` sub-folder along with ``configFile.txt``
+    (or ``config.txt``) and ``temperatureLog.csv`` files, it is also considered
+    an attempt so that datasets lacking explicit ``attempt`` directories are
+    supported.
+    """
 
     attempt_dirs: List[str] = []
 
@@ -300,9 +307,20 @@ def gather_attempts(root: str, max_depth: int = 2) -> List[str]:
         rel_depth = os.path.relpath(dirpath, root).count(os.sep)
         if rel_depth > max_depth:
             continue
+
+        # attemptX directories
         for dname in dirnames:
             if dname.lower().startswith("attempt"):
                 attempt_dirs.append(os.path.join(dirpath, dname))
+
+        # directory itself contains frames and metadata -> treat as attempt
+        if "frames" in dirnames:
+            cfg_exists = os.path.isfile(os.path.join(dirpath, "configFile.txt")) or os.path.isfile(
+                os.path.join(dirpath, "config.txt")
+            )
+            log_exists = os.path.isfile(os.path.join(dirpath, "temperatureLog.csv"))
+            if cfg_exists and log_exists:
+                attempt_dirs.append(dirpath)
 
     return attempt_dirs
 
@@ -339,7 +357,10 @@ def convert_many(
 
         attempts = gather_attempts(root, max_depth=depth)
         if not attempts:
-            print(f"  WARNING: no attempts found in {root}")
+            print(
+                f"  WARNING: no attempts found in {root} "
+                f"(try --search-depth {depth + 2} or more)"
+            )
 
         for attempt in attempts:
             print(f"  Converting attempt {attempt} ...")
