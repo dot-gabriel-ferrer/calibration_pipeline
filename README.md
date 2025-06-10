@@ -77,6 +77,9 @@ depth for dark and flat attempts can be changed with `--search-depth`, e.g.
 python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/TestSection3 --verbose --search-depth 6
 ```
 
+If the script reports no attempts found, the directory tree might be deeper than the default.
+Re-run with a larger `--search-depth` (e.g. `--search-depth 8`).
+
 Use `--skip-bias`, `--skip-dark` or `--skip-flat` to ignore a dataset section if
 you only wish to convert a subset of the data.
 
