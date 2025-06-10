@@ -307,15 +307,23 @@ def gather_attempts(root: str, max_depth: int = 2) -> List[str]:
     return attempt_dirs
 
 
-def convert_many(bias_root: str, dark_root: str, flat_root: str) -> None:
+def convert_many(
+    bias_root: str,
+    dark_root: str,
+    flat_root: str,
+    search_depth: int = 6,
+) -> None:
+    """Convert all attempts contained in the three dataset sections."""
+
     index_rows: List[Dict[str, object]] = []
 
     datasets = [
         # search depth 2 should be enough for bias (T<temp>/attempt<n>)
         (bias_root, "BIAS", 2),
         # dark and flat datasets may include additional folders like exposure time
-        (dark_root, "DARK", 4),
-        (flat_root, "FLAT", 4),
+        # or temperature groups; use a larger depth by default
+        (dark_root, "DARK", search_depth),
+        (flat_root, "FLAT", search_depth),
     ]
 
     for root, caltype, depth in datasets:
@@ -360,6 +368,14 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
         action="store_true",
         help="Enable detailed logging messages",
     )
+    parser.add_argument(
+        "--search-depth",
+        type=int,
+        default=6,
+        help=(
+            "Maximum directory depth when searching for dark and flat attempts"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -368,7 +384,12 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
         format="%(levelname)s: %(message)s",
     )
 
-    convert_many(args.bias_section, args.dark_section, args.flat_section)
+    convert_many(
+        args.bias_section,
+        args.dark_section,
+        args.flat_section,
+        search_depth=args.search_depth,
+    )
 
 
 if __name__ == "__main__":

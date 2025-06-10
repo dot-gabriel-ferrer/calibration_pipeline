@@ -57,8 +57,9 @@ datasets into FITS format. It expects the paths to the three dataset roots:
 In the bias section the tool scans directories named `T<temp>` and, inside each
 of them, every `attempt<n>` folder.  Dark and flat datasets may include several
 intermediate folders (e.g. `20Frames/<exptime>s/` or
-`ContinuousFrames/T<temp>/<exptime>s`) before reaching the attempts.  Any
-combination up to two extra levels is supported.  Each attempt must contain
+`ContinuousFrames/T<temp>/<exptime>s`) before reaching the attempts.  The
+converter now searches up to six directory levels by default so deeper
+structures are handled automatically.  Each attempt must contain
 `configFile.txt`, `temperatureLog.csv` and a `frames/` directory with the raw
 files.  All such structures are handled automatically.
 
@@ -69,10 +70,11 @@ Run the conversion with:
 python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/TestSection3
 ```
 
-Add the `--verbose` option to print warnings about missing metadata, e.g.
+Add the `--verbose` option to print warnings about missing metadata.  The search
+depth for dark and flat attempts can be changed with `--search-depth`, e.g.
 
 ```bash
-python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/TestSection3 --verbose
+python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/TestSection3 --verbose --search-depth 6
 ```
 
 For each attempt a `fits/` directory is created alongside `frames/` containing
