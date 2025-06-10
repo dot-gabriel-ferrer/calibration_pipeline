@@ -44,7 +44,7 @@ def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
     rows: Dict[int, Dict[str, str]] = {}
     if not os.path.isfile(path):
         return rows
-
+      
     with open(path, newline="") as csvfile:
         sample = csvfile.read(1024)
         csvfile.seek(0)
@@ -61,7 +61,7 @@ def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
             except (ValueError, KeyError):
                 continue
             rows[frame] = row
-
+            
     return rows
 
 
@@ -116,12 +116,12 @@ def adapt_metadata_keys(row_metadata: Dict[str, str]) -> Dict[str, object]:
     return adapted
 
 
+
 def adapt_config_key(key: str) -> str:
     """Return a valid FITS header keyword for a config entry."""
     key = key.strip().upper().replace(" ", "_")
     key = re.sub(r"[^A-Z0-9_]+", "", key)
     return key[:8]
-
 
 def parse_frame_number(name: str) -> Optional[int]:
     match = re.search(r"f(\d+)", name)
@@ -138,12 +138,10 @@ def _open_raw(path: str, height: int, width: int, dtype: np.dtype) -> np.ndarray
         data = np.fromfile(f, dtype=dtype)
     return data.reshape((height, width))
 
-
 def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]]:
     """Extract exposure time and temperature from a raw filename.
 
     Examples of supported patterns::
-
         BiasT0_exp0.012sAt0f1.raw
         exp_1.2e-05s_frame0.raw
 
@@ -214,7 +212,9 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
     os.makedirs(out_dir, exist_ok=True)
 
     cfg = read_config(config_path)
+    
     metadata = load_csv_metadata(temp_log_path) or {}
+
     height, width, bit_depth = _parse_dimensions(cfg)
 
     dtype = np.uint16 if bit_depth > 8 else np.uint8
