@@ -8,7 +8,6 @@ import re
 
 from typing import Dict, Iterable, Optional, List, Tuple
 
-
 DEFAULT_HEIGHT = 2048
 DEFAULT_WIDTH = 2048
 DEFAULT_BIT_DEPTH = 16
@@ -101,8 +100,6 @@ def _open_raw(path: str, height: int, width: int, dtype: np.dtype) -> np.ndarray
         data = np.fromfile(f, dtype=dtype)
     return data.reshape((height, width))
 
-
-
 def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]]:
     """Extract exposure time and temperature from a raw filename.
 
@@ -150,7 +147,6 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
 
     Parameters
     ----------
-
     attempt_path: str
         Path to the attempt directory containing ``configFile.txt`` and
         ``temperatureLog.csv``.
