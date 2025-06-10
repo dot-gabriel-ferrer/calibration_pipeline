@@ -143,7 +143,6 @@ def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]
     """Extract exposure time and temperature from a raw filename.
 
     Examples of supported patterns::
-
         BiasT0_exp0.012sAt0f1.raw
         exp_1.2e-05s_frame0.raw
 
