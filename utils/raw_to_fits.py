@@ -5,7 +5,10 @@ import os
 import csv
 import glob
 import re
+import logging
 from typing import Dict, Iterable, Optional, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_HEIGHT = 2048
 DEFAULT_WIDTH = 2048
@@ -20,6 +23,7 @@ def read_config(path: str) -> Dict[str, str]:
 
     cfg: Dict[str, str] = {}
     if not os.path.isfile(path):
+        logger.warning("Config file %s not found", path)
         return cfg
 
     with open(path, "r", encoding="utf-8") as f:
@@ -43,6 +47,7 @@ def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
 
     rows: Dict[int, Dict[str, str]] = {}
     if not os.path.isfile(path):
+        logger.warning("Metadata file %s not found", path)
         return rows
 
     with open(path, newline="") as csvfile:
@@ -243,14 +248,20 @@ def convert_attempt(
         for k, v in cfg.items():
             header[adapt_config_key(k)] = v
 
-        frame_num = parse_frame_number(os.path.basename(raw_file))
-        row_meta = metadata.get(frame_num, {})
+        fname = os.path.basename(raw_file)
+        frame_num = parse_frame_number(fname)
+        if frame_num is None:
+            logger.warning("Could not determine frame number from %s", fname)
+        row_meta = metadata.get(frame_num, {}) if frame_num is not None else {}
+        if frame_num is not None and not row_meta:
+            logger.warning(
+                "No metadata entry for frame %s in %s", frame_num, temp_log_path
+            )
         if row_meta:
             adapted = adapt_metadata_keys(row_meta)
             for hk, hv in adapted.items():
                 header[hk] = hv
 
-        fname = os.path.basename(raw_file)
         exptime, fname_temp = parse_filename_metadata(fname)
         if exptime is not None and "EXPTIME" not in header:
             header["EXPTIME"] = exptime
@@ -344,8 +355,18 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
     parser.add_argument("bias_section", help="Path to TestSection1 (BIAS)")
     parser.add_argument("dark_section", help="Path to TestSection2 (DARK)")
     parser.add_argument("flat_section", help="Path to TestSection3 (FLAT)")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable detailed logging messages",
+    )
 
     args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.WARNING if args.verbose else logging.ERROR,
+        format="%(levelname)s: %(message)s",
+    )
 
     convert_many(args.bias_section, args.dark_section, args.flat_section)
 
