@@ -288,7 +288,9 @@ def gather_attempts(root: str, nested: bool = False) -> List[str]:
 def convert_many(bias_root: str, dark_root: str, flat_root: str) -> None:
     datasets = [
         (bias_root, "BIAS", False),
-        (dark_root, "DARK", False),
+        # Dark datasets may include an extra level (e.g. '20Frames/') before the
+        # temperature folders, so ``nested`` is True here
+        (dark_root, "DARK", True),
         (flat_root, "FLAT", True),
     ]
 

@@ -43,11 +43,12 @@ The `utils.raw_to_fits` module converts the raw camera frames of the calibration
 datasets into FITS format. It expects the paths to the three dataset roots:
 `TestSection1` (bias), `TestSection2` (dark) and `TestSection3` (flat).
 
-In the bias and dark sections the tool scans directories named `T<temp>` and,
-inside each of them, every `attempt<n>` folder. Each attempt must contain
-`configFile.txt`, `temperatureLog.csv` and a `frames/` directory with the raw
-files.  The flat section may include an extra level (e.g. `20frames/`) before the
-`T<temp>` folders, which are processed in the same way.
+In the bias section the tool scans directories named `T<temp>` and, inside each
+of them, every `attempt<n>` folder.  Dark and flat datasets may include an extra
+level such as `20Frames/` or `ContinuousFrames/` before the `T<temp>` folders.
+Each attempt must contain `configFile.txt`, `temperatureLog.csv` and a
+`frames/` directory with the raw files.  All such structures are handled
+automatically.
 
 Run the conversion with:
 
