@@ -1,0 +1,6 @@
+# Core dependencies for all pipeline modules
+numpy
+astropy
+matplotlib
+tqdm
+
