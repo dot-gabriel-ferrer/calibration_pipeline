@@ -1,6 +1,6 @@
 import numpy as np
 from astropy.io import fits
-from utils.raw_to_fits import convert_attempt
+from utils.raw_to_fits import convert_attempt, parse_frame_number
 
 
 def test_convert_attempt_parses_exptime(tmp_path):
@@ -58,3 +58,7 @@ def test_convert_attempt_custom_headers(tmp_path):
     assert hdr["TEMP"] == -10
     assert hdr["TEMP_0"] == -11
     assert hdr["EQTEMP"] == 5
+
+
+def test_parse_frame_number_frame_prefix():
+    assert parse_frame_number("exp_1.2e-05s_frame0.raw") == 0

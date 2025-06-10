@@ -140,7 +140,7 @@ def adapt_config_key(key: str) -> str:
 
 
 def parse_frame_number(name: str) -> Optional[int]:
-    match = re.search(r"f(\d+)", name)
+    match = re.search(r"(?:frame|f)(\d+)", name, re.IGNORECASE)
     if match:
         try:
             return int(match.group(1))
