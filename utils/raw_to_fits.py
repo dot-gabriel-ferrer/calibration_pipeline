@@ -312,19 +312,24 @@ def convert_many(
     dark_root: str,
     flat_root: str,
     search_depth: int = 6,
+    skip_bias: bool = False,
+    skip_dark: bool = False,
+    skip_flat: bool = False,
 ) -> None:
     """Convert all attempts contained in the three dataset sections."""
 
     index_rows: List[Dict[str, object]] = []
 
-    datasets = [
-        # search depth 2 should be enough for bias (T<temp>/attempt<n>)
-        (bias_root, "BIAS", 2),
-        # dark and flat datasets may include additional folders like exposure time
-        # or temperature groups; use a larger depth by default
-        (dark_root, "DARK", search_depth),
-        (flat_root, "FLAT", search_depth),
-    ]
+    datasets = []
+    # search depth 2 should be enough for bias (T<temp>/attempt<n>)
+    if not skip_bias:
+        datasets.append((bias_root, "BIAS", 2))
+    # dark and flat datasets may include additional folders like exposure time
+    # or temperature groups; use a larger depth by default
+    if not skip_dark:
+        datasets.append((dark_root, "DARK", search_depth))
+    if not skip_flat:
+        datasets.append((flat_root, "FLAT", search_depth))
 
     for root, caltype, depth in datasets:
         print(f"Processing {caltype} dataset at {root}...")
@@ -376,6 +381,21 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
             "Maximum directory depth when searching for dark and flat attempts"
         ),
     )
+    parser.add_argument(
+        "--skip-bias",
+        action="store_true",
+        help="Do not convert bias dataset",
+    )
+    parser.add_argument(
+        "--skip-dark",
+        action="store_true",
+        help="Do not convert dark dataset",
+    )
+    parser.add_argument(
+        "--skip-flat",
+        action="store_true",
+        help="Do not convert flat dataset",
+    )
 
     args = parser.parse_args(argv)
 
@@ -389,6 +409,9 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
         args.dark_section,
         args.flat_section,
         search_depth=args.search_depth,
+        skip_bias=args.skip_bias,
+        skip_dark=args.skip_dark,
+        skip_flat=args.skip_flat,
     )
 
 

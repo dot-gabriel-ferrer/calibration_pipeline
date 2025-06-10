@@ -1,6 +1,8 @@
+import csv
 import numpy as np
+import pytest
 from astropy.io import fits
-from utils.raw_to_fits import convert_attempt, parse_frame_number
+from utils.raw_to_fits import convert_attempt, convert_many, parse_frame_number
 
 
 def test_convert_attempt_parses_exptime(tmp_path):
@@ -62,3 +64,56 @@ def test_convert_attempt_custom_headers(tmp_path):
 
 def test_parse_frame_number_frame_prefix():
     assert parse_frame_number("exp_1.2e-05s_frame0.raw") == 0
+
+
+@pytest.mark.parametrize(
+    "skip_flag,caltype",
+    [
+        ("skip_bias", "BIAS"),
+        ("skip_dark", "DARK"),
+        ("skip_flat", "FLAT"),
+    ],
+)
+def test_convert_many_skip_flags(tmp_path, skip_flag, caltype):
+    bias_root = tmp_path / "bias"
+    dark_root = tmp_path / "dark"
+    flat_root = tmp_path / "flat"
+
+    for root in (bias_root, dark_root, flat_root):
+        attempt = root / "T0" / "attempt0" / "frames"
+        attempt.mkdir(parents=True)
+        with open(attempt.parent / "configFile.txt", "w") as f:
+            f.write("WIDTH: 1\nHEIGHT: 1\nBIT_DEPTH: 16\n")
+        with open(attempt.parent / "temperatureLog.csv", "w") as f:
+            f.write("FrameNum\n0\n")
+        np.array([1], dtype=np.uint16).tofile(attempt / "f0.raw")
+
+    kwargs = {"skip_bias": False, "skip_dark": False, "skip_flat": False}
+    kwargs[skip_flag] = True
+
+    convert_many(
+        str(bias_root),
+        str(dark_root),
+        str(flat_root),
+        search_depth=2,
+        **kwargs,
+    )
+
+    paths = {
+        "BIAS": bias_root / "T0" / "attempt0" / "fits",
+        "DARK": dark_root / "T0" / "attempt0" / "fits",
+        "FLAT": flat_root / "T0" / "attempt0" / "fits",
+    }
+
+    # skipped dataset should not have a fits directory
+    assert not paths[caltype].exists()
+    # other datasets should have a fits directory
+    for ct, p in paths.items():
+        if ct != caltype:
+            assert p.is_dir()
+
+    # verify index CSV does not contain the skipped calibration type
+    csv_path = tmp_path / "fits_index.csv"
+    with open(csv_path) as f:
+        rows = list(csv.DictReader(f))
+    assert all(row["CALTYPE"] != caltype for row in rows)
