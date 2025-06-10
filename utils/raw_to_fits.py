@@ -5,6 +5,7 @@ import os
 import csv
 import glob
 import re
+
 from typing import Dict, Iterable, Optional, List, Tuple
 
 DEFAULT_HEIGHT = 2048
@@ -98,7 +99,6 @@ def _open_raw(path: str, height: int, width: int, dtype: np.dtype) -> np.ndarray
     with open(path, "rb") as f:
         data = np.fromfile(f, dtype=dtype)
     return data.reshape((height, width))
-
 
 def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]]:
     """Extract exposure time and temperature from a raw filename.
