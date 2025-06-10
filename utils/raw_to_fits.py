@@ -5,7 +5,9 @@ import os
 import csv
 import glob
 import re
-from typing import Dict, Iterable, Optional, List
+
+from typing import Dict, Iterable, Optional, List, Tuple
+
 
 DEFAULT_HEIGHT = 2048
 DEFAULT_WIDTH = 2048
@@ -100,6 +102,45 @@ def _open_raw(path: str, height: int, width: int, dtype: np.dtype) -> np.ndarray
     return data.reshape((height, width))
 
 
+
+def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]]:
+    """Extract exposure time and temperature from a raw filename.
+
+    Examples of supported patterns::
+
+        BiasT0_exp0.012sAt0f1.raw
+        exp_1.2e-05s_frame0.raw
+
+    Parameters
+    ----------
+    name : str
+        Base filename of the raw frame.
+
+    Returns
+    -------
+    tuple
+        ``(exptime_seconds, temperature)``. Values are ``None`` if not found.
+    """
+
+    exp_match = re.search(r"exp[_]?([0-9.+\-eE]+)s", name)
+    exptime = None
+    if exp_match:
+        try:
+            exptime = float(exp_match.group(1))
+        except ValueError:
+            exptime = None
+
+    temp_match = re.search(r"T(-?[0-9]+(?:\.[0-9]+)?)", name)
+    temp = None
+    if temp_match:
+        try:
+            temp = float(temp_match.group(1))
+        except ValueError:
+            temp = None
+
+    return exptime, temp
+
+
 def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "frames") -> List[str]:
     """Convert all ``.raw`` files inside an attempt directory into FITS files.
 
@@ -109,6 +150,7 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
 
     Parameters
     ----------
+
     attempt_path: str
         Path to the attempt directory containing ``configFile.txt`` and
         ``temperatureLog.csv``.
@@ -152,6 +194,14 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
             header[k.upper()[:8]] = v
         if idx in temps:
             header["CCD_TEMP"] = temps[idx]
+            header["TEMP"] = temps[idx]
+
+        fname = os.path.basename(raw_file)
+        exptime, fname_temp = parse_filename_metadata(fname)
+        if exptime is not None:
+            header["EXPTIME"] = exptime
+        if fname_temp is not None:
+            header.setdefault("FILETEMP", fname_temp)
         hdul = fits.HDUList([fits.PrimaryHDU(data, header=header)])
         out_name = os.path.splitext(os.path.basename(raw_file))[0] + ".fits"
         out_path = os.path.join(out_dir, out_name)

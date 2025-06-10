@@ -56,8 +56,11 @@ python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/Te
 ```
 
 For each attempt a `fits/` directory is created alongside `frames/` containing
-the generated FITS files with the configuration values and per-frame
-temperature written to the header.
+
+the generated FITS files. Basic configuration values and the per-frame
+temperature are written to the header. If the raw filename encodes the exposure
+time (e.g. `exp0.1s` or `exp_1.2e-05s`) it is stored under `EXPTIME`; any
+temperature indicated in the name is stored under `FILETEMP`.
 
 For more options refer to the READMEs within each submodule.
 
