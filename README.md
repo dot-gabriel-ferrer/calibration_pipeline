@@ -77,6 +77,9 @@ depth for dark and flat attempts can be changed with `--search-depth`, e.g.
 python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/TestSection3 --verbose --search-depth 6
 ```
 
+Use `--skip-bias`, `--skip-dark` or `--skip-flat` to ignore a dataset section if
+you only wish to convert a subset of the data.
+
 For each attempt a `fits/` directory is created alongside `frames/` containing
 the generated FITS files. All columns present in `temperatureLog.csv` are
 written into the FITS header using short keywords (for instance
