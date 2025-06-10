@@ -83,12 +83,13 @@ def adapt_metadata_keys(row_metadata: Dict[str, str]) -> Dict[str, object]:
     mapping = {
         "FrameNum": "FRAMENUM",
         "TimeStamp": "TIMESTAMP",
-        "ExtTemperature": "EXTTEMP",
+        "ExtTemperature": "EQTEMP",
         "ExpTime": "EXPTIME",
         "RealExpTime": "REXPTIME",
-        "ExpGain": "EXPGAIN",
+        "ExpGain": "GAIN",
         "Temperature": "TEMP",
-        "InitialTemp": "INITTMP",
+        "InitialTemp": "TEMP_0",
+        "initialTemp": "TEMP_0",
         "DeltaTemperature": "DELTMP",
         "PowerCons": "POWCONS",
         # additional common names for the detector temperature
@@ -268,8 +269,10 @@ def convert_attempt(
                 "EXPTIME",
                 "REXPTIME",
                 "TEMP",
+                "TEMP_0",
+                "GAIN",
                 "FILETEMP",
-                "EXTTEMP",
+                "EQTEMP",
             ):
                 if key in header:
                     row[key] = header[key]
