@@ -148,3 +148,40 @@ def test_convert_many_frames_without_attempt_dirs(tmp_path):
 
     csv_path = tmp_path / "fits_index.csv"
     assert csv_path.is_file()
+
+
+def test_incomplete_raw_is_padded_and_flagged(tmp_path):
+    bias_root = tmp_path / "bias"
+    frames = bias_root / "T0" / "attempt0" / "frames"
+    frames.mkdir(parents=True)
+
+    with open(frames.parent / "configFile.txt", "w") as f:
+        f.write("WIDTH: 2\nHEIGHT: 2\nBIT_DEPTH: 16\n")
+
+    with open(frames.parent / "temperatureLog.csv", "w") as f:
+        f.write("FrameNum\n0\n")
+
+    # write a raw file with fewer pixels than expected
+    np.array([1, 2, 3], dtype=np.uint16).tofile(frames / "f0.raw")
+
+    convert_many(
+        str(bias_root),
+        str(bias_root),
+        str(bias_root),
+        search_depth=2,
+        skip_dark=True,
+        skip_flat=True,
+    )
+
+    fits_path = frames.parent / "fits" / "f0.fits"
+    data = fits.getdata(fits_path)
+    assert data.shape == (2, 2)
+    # last pixel should be padded with zero
+    assert data[1, 1] == 0
+    hdr = fits.getheader(fits_path)
+    assert hdr["BADSIZE"] is True
+
+    csv_path = bias_root / "fits_index.csv"
+    with open(csv_path) as f:
+        rows = list(csv.DictReader(f))
+    assert rows[0]["BADSIZE"] == "True"
