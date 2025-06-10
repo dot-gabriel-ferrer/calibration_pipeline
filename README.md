@@ -77,6 +77,10 @@ converted from microseconds to seconds.  If the raw filename encodes the
 exposure time (e.g. `exp0.1s` or `exp_1.2e-05s`) it is only used when the CSV
 does not provide one. Any temperature indicated in the filename is stored under
 `FILETEMP`.
+If the CSV uses alternative column names for the detector temperature (e.g.
+`CCDTemp`, `CCDTemperature` or `ChipTemp`), they are automatically normalised to
+the header keyword `TEMP` so that downstream scripts can rely on a consistent
+name.
 
 After the conversion finishes a `fits_index.csv` file is written in the common
 parent directory of the three sections. Each row lists the path to a generated
