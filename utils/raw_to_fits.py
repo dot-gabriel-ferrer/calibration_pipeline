@@ -91,11 +91,21 @@ def adapt_metadata_keys(row_metadata: Dict[str, str]) -> Dict[str, object]:
         "InitialTemp": "INITTMP",
         "DeltaTemperature": "DELTMP",
         "PowerCons": "POWCONS",
+        # additional common names for the detector temperature
+        "CCDTemp": "TEMP",
+        "CCD_Temp": "TEMP",
+        "CCDTemperature": "TEMP",
+        "ChipTemp": "TEMP",
     }
 
     adapted: Dict[str, object] = {}
     for key, value in row_metadata.items():
-        new_key = mapping.get(key, key.upper())
+        new_key = mapping.get(key)
+        if new_key is None:
+            if 'temp' in key.lower() and 'time' not in key.lower():
+                new_key = 'TEMP'
+            else:
+                new_key = key.upper()
         if value is None:
             continue
         value = str(value).strip()
