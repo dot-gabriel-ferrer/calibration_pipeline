@@ -11,8 +11,15 @@ Builds a dark current model that depends on temperature and exposure time. It su
 ## flat_pipeline
 Processes flat-field frames. Steps include optional dark subtraction, normalization, vignetting correction, master flat creation and flat model fitting. Modes are selected via `run_pipeline.py`.
 
-## structure_analysis.py
-Standalone example script for analysing flat frames. It loads bias and dark data with `ObservationManager`, generates bias/dark maps, optionally reduces flats and visualises temporal or temperature trends to spot new structures.
+## Analysis scripts
+The repository also includes a couple of standalone scripts useful for data exploration:
+
+- **`structure_analysis.py`** – inspects flat frames using `ObservationManager`.
+  It can build bias/dark maps, optionally reduce the flats and plot trends over
+  time or temperature in order to detect new structures.
+- **`dark_pipeline/steps/outgasing_destruction_analysis.py`** – analyses flats
+  for long‑term detector degradation. It normalises frames, searches for outlier
+  pixels and generates summary plots. See the script for additional options.
 
 ## Installation
 
@@ -35,6 +42,10 @@ python flat_pipeline/run_pipeline.py --mode full --basepath path/to/flats --outp
 
 # Structure analysis example
 python structure_analysis.py path/to/calibration [--reduce]
+
+# Outgasing/destruction analysis
+python dark_pipeline/dark_pipeline/steps/outgasing_destruction_analysis.py \
+    path/to/FITS --calibrate --output_dir analysis_results
 ```
 
 ## Raw to FITS Conversion
