@@ -37,13 +37,14 @@ def read_config(path: str) -> Dict[str, str]:
 
     return cfg
 
+
 def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
     """Read ``temperatureLog.csv`` and return rows indexed by ``FrameNum``."""
 
     rows: Dict[int, Dict[str, str]] = {}
     if not os.path.isfile(path):
         return rows
-
+      
     with open(path, newline="") as csvfile:
         sample = csvfile.read(1024)
         csvfile.seek(0)
@@ -60,6 +61,8 @@ def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
             except (ValueError, KeyError):
                 continue
             rows[frame] = row
+            
+    return rows
 
 
 def _parse_dimensions(cfg: Dict[str, str]) -> tuple[int, int, int]:
@@ -112,6 +115,13 @@ def adapt_metadata_keys(row_metadata: Dict[str, str]) -> Dict[str, object]:
 
     return adapted
 
+
+
+def adapt_config_key(key: str) -> str:
+    """Return a valid FITS header keyword for a config entry."""
+    key = key.strip().upper().replace(" ", "_")
+    key = re.sub(r"[^A-Z0-9_]+", "", key)
+    return key[:8]
 
 def parse_frame_number(name: str) -> Optional[int]:
     match = re.search(r"f(\d+)", name)
@@ -202,7 +212,9 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
     os.makedirs(out_dir, exist_ok=True)
 
     cfg = read_config(config_path)
-    metadata = load_csv_metadata(temp_log_path)
+    
+    metadata = load_csv_metadata(temp_log_path) or {}
+
     height, width, bit_depth = _parse_dimensions(cfg)
 
     dtype = np.uint16 if bit_depth > 8 else np.uint8
@@ -214,7 +226,7 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
         header = fits.Header()
         header["CALTYPE"] = calibration
         for k, v in cfg.items():
-            header[k.upper()[:8]] = v
+            header[adapt_config_key(k)] = v
 
         frame_num = parse_frame_number(os.path.basename(raw_file))
         row_meta = metadata.get(frame_num, {})
