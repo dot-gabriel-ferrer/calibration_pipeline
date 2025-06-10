@@ -339,7 +339,10 @@ def convert_many(
 
         attempts = gather_attempts(root, max_depth=depth)
         if not attempts:
-            print(f"  WARNING: no attempts found in {root}")
+            print(
+                f"  WARNING: no attempts found in {root} "
+                f"(try --search-depth {depth + 2} or more)"
+            )
 
         for attempt in attempts:
             print(f"  Converting attempt {attempt} ...")
