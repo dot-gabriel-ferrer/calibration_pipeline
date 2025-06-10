@@ -37,7 +37,6 @@ def read_config(path: str) -> Dict[str, str]:
 
     return cfg
 
-
 def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
     """Read ``temperatureLog.csv`` and return rows indexed by ``FrameNum``."""
 
@@ -61,8 +60,6 @@ def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
             except (ValueError, KeyError):
                 continue
             rows[frame] = row
-
-    return rows
 
 
 def _parse_dimensions(cfg: Dict[str, str]) -> tuple[int, int, int]:
@@ -131,12 +128,10 @@ def _open_raw(path: str, height: int, width: int, dtype: np.dtype) -> np.ndarray
         data = np.fromfile(f, dtype=dtype)
     return data.reshape((height, width))
 
-
 def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]]:
     """Extract exposure time and temperature from a raw filename.
 
     Examples of supported patterns::
-
         BiasT0_exp0.012sAt0f1.raw
         exp_1.2e-05s_frame0.raw
 
