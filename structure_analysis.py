@@ -14,7 +14,7 @@ Ejemplo COMPLETO y EJECUTABLE para:
 IMPORTANTE:
  - Asume que tienes instalado astropy, numpy, matplotlib, tqdm.
  - Asume que tienes disponible la clase 'ObservationManager' en el path:
-       from observation_manager.observation_manager import ObservationManager
+       from bias_pipeline.bias_pipeline.steps.observation_manager.observation_manager import ObservationManager
    (modifica el import según tu estructura de paquetes).
  - Ajusta rutas, tolerancias de temperatura, umbrales, etc. a tus necesidades reales.
 """
@@ -33,10 +33,10 @@ from astropy.io import fits
 # -----------------------------------------------------------------------------
 # Modifica este import si tu clase se encuentra en otro lugar o módulo:
 try:
-    from observation_manager.observation_manager import ObservationManager
+    from bias_pipeline.bias_pipeline.steps.observation_manager.observation_manager import ObservationManager
 except ImportError:
     # Si tuvieras el package local, podrías usar:
-    # from .observation_manager.observation_manager import ObservationManager
+    # from bias_pipeline.bias_pipeline.steps.observation_manager.observation_manager import ObservationManager
     print("No se pudo importar ObservationManager. Asegúrate de que está instalado o en el PYTHONPATH.")
     sys.exit(1)
 
