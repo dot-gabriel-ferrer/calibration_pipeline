@@ -39,24 +39,38 @@ python structure_analysis.py path/to/calibration [--reduce]
 
 ## Raw to FITS Conversion
 
-The `utils` package provides a helper to convert `.raw` camera frames into FITS
-files.  Each acquisition section should contain:
+The `utils.raw_to_fits` module converts the raw camera frames of the calibration
+datasets into FITS format. It expects the paths to the three dataset roots:
+`TestSection1` (bias), `TestSection2` (dark) and `TestSection3` (flat).
 
-- `configFile.txt` – configuration parameters (e.g. `HEIGHT`, `WIDTH`,
-  `BIT_DEPTH`).
-- `temperatureLog.csv` – CSV with two columns: frame index and sensor
-  temperature.
-- A folder with the `.raw` frames (defaults to `frames/`).
+In the bias section the tool scans directories named `T<temp>` and, inside each
+of them, every `attempt<n>` folder.  Dark and flat datasets may include several
+intermediate folders (e.g. `20Frames/<exptime>s/` or
+`ContinuousFrames/T<temp>/<exptime>s`) before reaching the attempts.  Any
+combination up to two extra levels is supported.  Each attempt must contain
+`configFile.txt`, `temperatureLog.csv` and a `frames/` directory with the raw
+files.  All such structures are handled automatically.
 
-To convert one or more sections run:
+Run the conversion with:
 
 ```bash
-python -m utils.raw_to_fits <TestSection1> <TestSection2> <TestSection3>
+python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/TestSection3
 ```
 
-A `fits/` subdirectory will be created inside each section containing the
-resulting FITS files with the configuration values and the corresponding frame
-temperature written into the header.
+For each attempt a `fits/` directory is created alongside `frames/` containing
+the generated FITS files. All columns present in `temperatureLog.csv` are
+written into the FITS header using short keywords (for instance
+`FrameNum` → `FRAMENUM`, `ExpTime` → `EXPTIME`).  Exposure time values are
+converted from microseconds to seconds.  If the raw filename encodes the
+exposure time (e.g. `exp0.1s` or `exp_1.2e-05s`) it is only used when the CSV
+does not provide one. Any temperature indicated in the filename is stored under
+`FILETEMP`.
+
+After the conversion finishes a `fits_index.csv` file is written in the common
+parent directory of the three sections. Each row lists the path to a generated
+FITS file along with basic metadata (frame number, exposure time, temperatures
+and calibration type).
 
 For more options refer to the READMEs within each submodule.
+
 
