@@ -306,7 +306,15 @@ def convert_many(bias_root: str, dark_root: str, flat_root: str) -> None:
 
     for root, caltype, depth in datasets:
         print(f"Processing {caltype} dataset at {root}...")
-        for attempt in gather_attempts(root, max_depth=depth):
+        if not os.path.isdir(root):
+            print(f"  WARNING: path {root} does not exist or is not a directory")
+            continue
+
+        attempts = gather_attempts(root, max_depth=depth)
+        if not attempts:
+            print(f"  WARNING: no attempts found in {root}")
+
+        for attempt in attempts:
             print(f"  Converting attempt {attempt} ...")
             convert_attempt(attempt, calibration=caltype, index_rows=index_rows)
 

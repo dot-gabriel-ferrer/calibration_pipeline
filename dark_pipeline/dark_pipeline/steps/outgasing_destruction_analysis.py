@@ -30,10 +30,12 @@ from collections import defaultdict
 
 # Adjust as needed for your environment
 try:
-    from observation_manager.observation_manager import ObservationManager
-except ImportError:
-    print("Could not import ObservationManager. Ensure it's installed or on PYTHONPATH.")
-    sys.exit(1)
+    from .observation_manager.observation_manager import ObservationManager
+except Exception:  # ImportError or other issues
+    ObservationManager = None
+    print(
+        "Could not import ObservationManager. Some features will be disabled."
+    )
 
 
 ##############################################################################
