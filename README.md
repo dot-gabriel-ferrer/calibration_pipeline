@@ -51,6 +51,7 @@ combination up to two extra levels is supported.  Each attempt must contain
 `configFile.txt`, `temperatureLog.csv` and a `frames/` directory with the raw
 files.  All such structures are handled automatically.
 
+
 Run the conversion with:
 
 ```bash
@@ -70,6 +71,7 @@ After the conversion finishes a `fits_index.csv` file is written in the common
 parent directory of the three sections. Each row lists the path to a generated
 FITS file along with basic metadata (frame number, exposure time, temperatures
 and calibration type).
+
 
 For more options refer to the READMEs within each submodule.
 

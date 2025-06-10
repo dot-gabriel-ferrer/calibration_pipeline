@@ -116,6 +116,7 @@ def adapt_metadata_keys(row_metadata: Dict[str, str]) -> Dict[str, object]:
     return adapted
 
 
+
 def adapt_config_key(key: str) -> str:
     """Return a valid FITS header keyword for a config entry."""
     key = key.strip().upper().replace(" ", "_")
@@ -138,6 +139,45 @@ def _open_raw(path: str, height: int, width: int, dtype: np.dtype) -> np.ndarray
         data = np.fromfile(f, dtype=dtype)
     return data.reshape((height, width))
 
+def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]]:
+    """Extract exposure time and temperature from a raw filename.
+
+    Examples of supported patterns::
+        BiasT0_exp0.012sAt0f1.raw
+        exp_1.2e-05s_frame0.raw
+
+    Parameters
+    ----------
+    name : str
+        Base filename of the raw frame.
+
+    Returns
+    -------
+    tuple
+        ``(exptime_seconds, temperature)``. Values are ``None`` if not found.
+    """
+
+    exp_match = re.search(r"exp[_]?([0-9.+\-eE]+)s", name)
+    exptime = None
+    if exp_match:
+        try:
+            exptime = float(exp_match.group(1))
+        except ValueError:
+            exptime = None
+
+    temp_match = re.search(r"T(-?[0-9]+(?:\.[0-9]+)?)", name)
+    temp = None
+    if temp_match:
+        try:
+            temp = float(temp_match.group(1))
+        except ValueError:
+            temp = None
+
+    return exptime, temp
+
+
+def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "frames") -> List[str]:
+    """Convert all ``.raw`` files inside an attempt directory into FITS files.
 
 def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]]:
     """Extract exposure time and temperature from a raw filename.
@@ -220,6 +260,7 @@ def convert_attempt(
 
     cfg = read_config(config_path)
     metadata = load_csv_metadata(temp_log_path) or {}
+
     height, width, bit_depth = _parse_dimensions(cfg)
 
     dtype = np.uint16 if bit_depth > 8 else np.uint8
@@ -281,6 +322,8 @@ def gather_attempts(root: str, max_depth: int = 2) -> List[str]:
             if dname.lower().startswith("attempt"):
                 attempt_dirs.append(os.path.join(dirpath, dname))
 
+
+
     return attempt_dirs
 
 
@@ -311,6 +354,7 @@ def convert_many(bias_root: str, dark_root: str, flat_root: str) -> None:
             for row in index_rows:
                 writer.writerow(row)
         print(f"Wrote index CSV to {csv_path}")
+
 
 
 def main(argv: Optional[Iterable[str]] = None) -> None:
