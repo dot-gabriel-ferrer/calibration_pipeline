@@ -117,3 +117,31 @@ def test_convert_many_skip_flags(tmp_path, skip_flag, caltype):
     with open(csv_path) as f:
         rows = list(csv.DictReader(f))
     assert all(row["CALTYPE"] != caltype for row in rows)
+
+
+def test_convert_many_deep_dark(tmp_path):
+    """convert_many handles deep dark directory structures"""
+    bias_root = tmp_path / "TestSection1"
+    dark_root = tmp_path / "TestSection2"
+    flat_root = tmp_path / "TestSection3"
+
+    attempt = dark_root / "20Frames" / "T20" / "T0" / "0.4s" / "attempt0"
+    frames = attempt / "frames"
+    frames.mkdir(parents=True)
+
+    with open(attempt / "configFile.txt", "w") as f:
+        f.write("WIDTH: 1\nHEIGHT: 1\nBIT_DEPTH: 16\n")
+    with open(attempt / "temperatureLog.csv", "w") as f:
+        f.write("FrameNum\n0\n")
+    np.array([1], dtype=np.uint16).tofile(frames / "f0.raw")
+
+    convert_many(
+        str(bias_root),
+        str(dark_root),
+        str(flat_root),
+        search_depth=6,
+        skip_bias=True,
+    )
+
+    fits_file = attempt / "fits" / "f0.fits"
+    assert fits_file.is_file()
