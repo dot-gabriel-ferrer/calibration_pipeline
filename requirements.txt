@@ -3,4 +3,5 @@ numpy
 astropy
 matplotlib
 tqdm
+pytest
 
