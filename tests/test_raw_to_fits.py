@@ -117,3 +117,34 @@ def test_convert_many_skip_flags(tmp_path, skip_flag, caltype):
     with open(csv_path) as f:
         rows = list(csv.DictReader(f))
     assert all(row["CALTYPE"] != caltype for row in rows)
+
+
+def test_convert_many_frames_without_attempt_dirs(tmp_path):
+    bias_root = tmp_path / "bias"
+    dark_root = tmp_path / "dark"
+    flat_root = tmp_path / "flat"
+
+    for root in (bias_root, dark_root, flat_root):
+        frames = root / "20Frames" / "T20" / "T0" / "0.4s" / "frames"
+        frames.mkdir(parents=True)
+        with open(frames.parent / "configFile.txt", "w") as f:
+            f.write("WIDTH: 1\nHEIGHT: 1\nBIT_DEPTH: 16\n")
+        with open(frames.parent / "temperatureLog.csv", "w") as f:
+            f.write("FrameNum\n0\n")
+        np.array([1], dtype=np.uint16).tofile(frames / "f0.raw")
+
+    convert_many(
+        str(bias_root),
+        str(dark_root),
+        str(flat_root),
+        search_depth=6,
+        skip_bias=True,
+    )
+
+    for root in (dark_root, flat_root):
+        assert (root / "20Frames" / "T20" / "T0" / "0.4s" / "fits").is_dir()
+    # bias section was skipped
+    assert not (bias_root / "20Frames" / "T20" / "T0" / "0.4s" / "fits").exists()
+
+    csv_path = tmp_path / "fits_index.csv"
+    assert csv_path.is_file()
