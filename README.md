@@ -72,7 +72,9 @@ python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/Te
 For each attempt a `fits/` directory is created alongside `frames/` containing
 the generated FITS files. All columns present in `temperatureLog.csv` are
 written into the FITS header using short keywords (for instance
-`FrameNum` → `FRAMENUM`, `ExpTime` → `EXPTIME`).  Exposure time values are
+`FrameNum` → `FRAMENUM`, `ExpTime` → `EXPTIME`).  Certain columns are mapped
+to more concise names: `ExpGain` → `GAIN`, `Temperature` → `TEMP`,
+`InitialTemp` → `TEMP_0` and `ExtTemperature` → `EQTEMP`. Exposure time values are
 converted from microseconds to seconds.  If the raw filename encodes the
 exposure time (e.g. `exp0.1s` or `exp_1.2e-05s`) it is only used when the CSV
 does not provide one. Any temperature indicated in the filename is stored under
