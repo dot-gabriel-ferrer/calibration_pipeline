@@ -5,7 +5,6 @@ import os
 import csv
 import glob
 import re
-
 from typing import Dict, Iterable, Optional, List, Tuple
 
 DEFAULT_HEIGHT = 2048
@@ -38,16 +37,14 @@ def read_config(path: str) -> Dict[str, str]:
 
     return cfg
 
+def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
+    """Read ``temperatureLog.csv`` and return rows indexed by ``FrameNum``."""
 
-def read_temperature_log(path: str) -> Dict[int, float]:
-    """Read ``temperatureLog.csv`` and return a mapping ``frame -> temperature``."""
-
-    temps: Dict[int, float] = {}
+    rows: Dict[int, Dict[str, str]] = {}
     if not os.path.isfile(path):
-        return temps
+        return rows
 
     with open(path, newline="") as csvfile:
-        # Try to autodetect delimiter and field names
         sample = csvfile.read(1024)
         csvfile.seek(0)
         try:
@@ -57,30 +54,12 @@ def read_temperature_log(path: str) -> Dict[int, float]:
 
         csvfile.seek(0)
         reader = csv.DictReader(csvfile, dialect=dialect)
-
-        if "Temperature" in reader.fieldnames:
-            for row in reader:
-                try:
-                    frame = int(row.get("FrameNum", row.get("frame", row[reader.fieldnames[0]])))
-                    temp = float(row["Temperature"])
-                except (ValueError, KeyError):
-                    continue
-                temps[frame] = temp
-        else:
-            # Fallback: use raw reader and assume temperature is the 7th column
-            csvfile.seek(0)
-            simple_reader = csv.reader(csvfile, delimiter=dialect.delimiter)
-            for row in simple_reader:
-                if not row or len(row) < 7:
-                    continue
-                try:
-                    frame = int(row[0])
-                    temp = float(row[6])
-                except ValueError:
-                    continue
-                temps[frame] = temp
-
-    return temps
+        for row in reader:
+            try:
+                frame = int(row.get("FrameNum", row.get("frame", row[reader.fieldnames[0]])))
+            except (ValueError, KeyError):
+                continue
+            rows[frame] = row
 
 
 def _parse_dimensions(cfg: Dict[str, str]) -> tuple[int, int, int]:
@@ -95,6 +74,55 @@ def _parse_dimensions(cfg: Dict[str, str]) -> tuple[int, int, int]:
     return height, width, bit_depth
 
 
+def adapt_metadata_keys(row_metadata: Dict[str, str]) -> Dict[str, object]:
+    """Map CSV columns to FITS header keywords and convert values."""
+
+    mapping = {
+        "FrameNum": "FRAMENUM",
+        "TimeStamp": "TIMESTAMP",
+        "ExtTemperature": "EXTTEMP",
+        "ExpTime": "EXPTIME",
+        "RealExpTime": "REXPTIME",
+        "ExpGain": "EXPGAIN",
+        "Temperature": "TEMP",
+        "InitialTemp": "INITTMP",
+        "DeltaTemperature": "DELTMP",
+        "PowerCons": "POWCONS",
+    }
+
+    adapted: Dict[str, object] = {}
+    for key, value in row_metadata.items():
+        new_key = mapping.get(key, key.upper())
+        if value is None:
+            continue
+        value = str(value).strip()
+        if value == "":
+            continue
+        try:
+            num = float(value)
+            if np.isinf(num):
+                adapted[new_key] = "INF"
+            else:
+                if key in ["ExpTime", "RealExpTime"]:
+                    adapted[new_key] = num / 1e6
+                else:
+                    adapted[new_key] = num
+        except ValueError:
+            adapted[new_key] = value
+
+    return adapted
+
+
+def parse_frame_number(name: str) -> Optional[int]:
+    match = re.search(r"f(\d+)", name)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
 def _open_raw(path: str, height: int, width: int, dtype: np.dtype) -> np.ndarray:
     with open(path, "rb") as f:
         data = np.fromfile(f, dtype=dtype)
@@ -104,7 +132,6 @@ def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]
     """Extract exposure time and temperature from a raw filename.
 
     Examples of supported patterns::
-
         BiasT0_exp0.012sAt0f1.raw
         exp_1.2e-05s_frame0.raw
 
@@ -175,7 +202,7 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
     os.makedirs(out_dir, exist_ok=True)
 
     cfg = read_config(config_path)
-    temps = read_temperature_log(temp_log_path)
+    metadata = load_csv_metadata(temp_log_path)
     height, width, bit_depth = _parse_dimensions(cfg)
 
     dtype = np.uint16 if bit_depth > 8 else np.uint8
@@ -188,13 +215,17 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
         header["CALTYPE"] = calibration
         for k, v in cfg.items():
             header[k.upper()[:8]] = v
-        if idx in temps:
-            header["CCD_TEMP"] = temps[idx]
-            header["TEMP"] = temps[idx]
+
+        frame_num = parse_frame_number(os.path.basename(raw_file))
+        row_meta = metadata.get(frame_num, {})
+        if row_meta:
+            adapted = adapt_metadata_keys(row_meta)
+            for hk, hv in adapted.items():
+                header[hk] = hv
 
         fname = os.path.basename(raw_file)
         exptime, fname_temp = parse_filename_metadata(fname)
-        if exptime is not None:
+        if exptime is not None and "EXPTIME" not in header:
             header["EXPTIME"] = exptime
         if fname_temp is not None:
             header.setdefault("FILETEMP", fname_temp)

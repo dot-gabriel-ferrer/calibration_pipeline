@@ -12,7 +12,11 @@ def test_convert_attempt_parses_exptime(tmp_path):
         f.write("WIDTH: 2\nHEIGHT: 2\nBIT_DEPTH: 16\n")
 
     with open(attempt / "temperatureLog.csv", "w") as f:
-        f.write("FrameNum,Temperature\n0,10\n1,11\n")
+        f.write(
+            "FrameNum,TimeStamp,ExtTemperature,ExpTime,RealExpTime,ExpGain,Temperature,InitialTemp,DeltaTemperature,PowerCons\n"
+        )
+        f.write("0,100,0,12,12,1,-0.5,-0.5,0,50\n")
+        f.write("1,101,0,12,12,1,-0.4,-0.5,0,50\n")
 
     arr0 = np.arange(4, dtype=np.uint16).reshape(2, 2)
     arr0.tofile(frames / "BiasT0_exp0.1sAt0f0.raw")
@@ -24,7 +28,8 @@ def test_convert_attempt_parses_exptime(tmp_path):
     assert len(fits_files) == 2
 
     hdr = fits.getheader(fits_files[0])
-    assert hdr["EXPTIME"] == 0.1
-    assert hdr["CCD_TEMP"] == 10
-    assert hdr["TEMP"] == 10
+    assert hdr["FRAMENUM"] == 0
+    assert hdr["TIMESTAMP"] == 100.0
+    assert hdr["EXPTIME"] == 12 / 1e6
+    assert hdr["TEMP"] == -0.5
     assert hdr["FILETEMP"] == 0
