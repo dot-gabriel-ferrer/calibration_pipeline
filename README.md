@@ -14,6 +14,14 @@ Processes flat-field frames. Steps include optional dark subtraction, normalizat
 ## structure_analysis.py
 Standalone example script for analysing flat frames. It loads bias and dark data with `ObservationManager`, generates bias/dark maps, optionally reduces flats and visualises temporal or temperature trends to spot new structures.
 
+## Installation
+
+Install the required Python packages using the repository wide `requirements.txt` file:
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Quick start
 ```bash
 # Bias model
@@ -30,3 +38,4 @@ python structure_analysis.py path/to/calibration [--reduce]
 ```
 
 For more options refer to the READMEs within each submodule.
+
