@@ -69,6 +69,12 @@ Run the conversion with:
 python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/TestSection3
 ```
 
+Add the `--verbose` option to print warnings about missing metadata, e.g.
+
+```bash
+python -m utils.raw_to_fits path/to/TestSection1 path/to/TestSection2 path/to/TestSection3 --verbose
+```
+
 For each attempt a `fits/` directory is created alongside `frames/` containing
 the generated FITS files. All columns present in `temperatureLog.csv` are
 written into the FITS header using short keywords (for instance
