@@ -149,10 +149,28 @@ def parse_frame_number(name: str) -> Optional[int]:
     return None
 
 
-def _open_raw(path: str, height: int, width: int, dtype: np.dtype) -> np.ndarray:
+def _open_raw(
+    path: str, height: int, width: int, dtype: np.dtype
+) -> Tuple[np.ndarray, bool]:
+    """Return image data and whether the file size was incorrect."""
+
     with open(path, "rb") as f:
         data = np.fromfile(f, dtype=dtype)
-    return data.reshape((height, width))
+
+    expected_size = height * width
+    if data.size != expected_size:
+        logger.warning(
+            "File %s has %d values, expected %d; padding with zeros",
+            path,
+            data.size,
+            expected_size,
+        )
+        padded = np.zeros(expected_size, dtype=dtype)
+        padded[: min(data.size, expected_size)] = data[:expected_size]
+        data = padded
+        return data.reshape((height, width)), True
+
+    return data.reshape((height, width)), False
 
 
 def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]]:
@@ -242,9 +260,11 @@ def convert_attempt(
     raw_files = sorted(glob.glob(os.path.join(raw_dir, "*.raw")))
     fits_paths = []
     for idx, raw_file in enumerate(raw_files):
-        data = _open_raw(raw_file, height, width, dtype)
+        data, bad_size = _open_raw(raw_file, height, width, dtype)
         header = fits.Header()
         header["CALTYPE"] = calibration
+        if bad_size:
+            header["BADSIZE"] = True
         for k, v in cfg.items():
             header[adapt_config_key(k)] = v
 
@@ -284,6 +304,7 @@ def convert_attempt(
                 "GAIN",
                 "FILETEMP",
                 "EQTEMP",
+                "BADSIZE",
             ):
                 if key in header:
                     row[key] = header[key]
