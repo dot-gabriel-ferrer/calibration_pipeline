@@ -44,7 +44,7 @@ def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
     rows: Dict[int, Dict[str, str]] = {}
     if not os.path.isfile(path):
         return rows
-      
+
     with open(path, newline="") as csvfile:
         sample = csvfile.read(1024)
         csvfile.seek(0)
@@ -61,7 +61,7 @@ def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
             except (ValueError, KeyError):
                 continue
             rows[frame] = row
-            
+
     return rows
 
 
@@ -123,6 +123,7 @@ def adapt_config_key(key: str) -> str:
     key = re.sub(r"[^A-Z0-9_]+", "", key)
     return key[:8]
 
+
 def parse_frame_number(name: str) -> Optional[int]:
     match = re.search(r"f(\d+)", name)
     if match:
@@ -178,6 +179,52 @@ def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]
 def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "frames") -> List[str]:
     """Convert all ``.raw`` files inside an attempt directory into FITS files.
 
+def parse_filename_metadata(name: str) -> Tuple[Optional[float], Optional[float]]:
+    """Extract exposure time and temperature from a raw filename.
+
+    Examples of supported patterns::
+
+        BiasT0_exp0.012sAt0f1.raw
+        exp_1.2e-05s_frame0.raw
+
+    Parameters
+    ----------
+    name : str
+        Base filename of the raw frame.
+
+    Returns
+    -------
+    tuple
+        ``(exptime_seconds, temperature)``. Values are ``None`` if not found.
+    """
+
+    exp_match = re.search(r"exp[_]?([0-9.+\-eE]+)s", name)
+    exptime = None
+    if exp_match:
+        try:
+            exptime = float(exp_match.group(1))
+        except ValueError:
+            exptime = None
+
+    temp_match = re.search(r"T(-?[0-9]+(?:\.[0-9]+)?)", name)
+    temp = None
+    if temp_match:
+        try:
+            temp = float(temp_match.group(1))
+        except ValueError:
+            temp = None
+
+    return exptime, temp
+
+
+def convert_attempt(
+    attempt_path: str,
+    calibration: str,
+    raw_subdir: str = "frames",
+    index_rows: Optional[List[Dict[str, object]]] = None,
+) -> List[str]:
+    """Convert all ``.raw`` files inside an attempt directory into FITS files.
+
     The resulting FITS files are stored in a ``fits/`` subdirectory within the
     attempt. Basic configuration values and per-frame temperature information are
     written to the FITS header.
@@ -212,7 +259,6 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
     os.makedirs(out_dir, exist_ok=True)
 
     cfg = read_config(config_path)
-    
     metadata = load_csv_metadata(temp_log_path) or {}
 
     height, width, bit_depth = _parse_dimensions(cfg)
@@ -246,57 +292,69 @@ def convert_attempt(attempt_path: str, calibration: str, raw_subdir: str = "fram
         out_path = os.path.join(out_dir, out_name)
         hdul.writeto(out_path, overwrite=True)
         fits_paths.append(out_path)
+
+        if index_rows is not None:
+            row = {"PATH": out_path, "CALTYPE": calibration}
+            for key in (
+                "FRAMENUM",
+                "EXPTIME",
+                "REXPTIME",
+                "TEMP",
+                "FILETEMP",
+                "EXTTEMP",
+            ):
+                if key in header:
+                    row[key] = header[key]
+            index_rows.append(row)
     return fits_paths
 
 
-def _find_attempts_in_temperature_dir(t_dir: str) -> List[str]:
-    attempts: List[str] = []
-    for entry in os.scandir(t_dir):
-        if entry.is_dir() and entry.name.lower().startswith("attempt"):
-            attempts.append(entry.path)
-    return attempts
-
-
-def gather_attempts(root: str, nested: bool = False) -> List[str]:
-    """Collect attempt directories in ``root``.
-
-    If ``nested`` is ``True`` (used for FLAT datasets), one level of subfolder is
-    searched before looking for ``T<temp>`` directories.
-    """
+def gather_attempts(root: str, max_depth: int = 2) -> List[str]:
+    """Return all attempt directories within ``root`` up to ``max_depth`` levels."""
 
     attempt_dirs: List[str] = []
 
-    def process_parent(parent: str):
-        for entry in os.scandir(parent):
-            if entry.is_dir() and re.match(r"^T-?\d+", entry.name):
-                attempt_dirs.extend(_find_attempts_in_temperature_dir(entry.path))
+    for dirpath, dirnames, _ in os.walk(root):
+        rel_depth = os.path.relpath(dirpath, root).count(os.sep)
+        if rel_depth > max_depth:
+            continue
+        for dname in dirnames:
+            if dname.lower().startswith("attempt"):
+                attempt_dirs.append(os.path.join(dirpath, dname))
 
-    if nested:
-        for sub in os.scandir(root):
-            if sub.is_dir() and re.match(r"^T-?\d+", sub.name):
-                process_parent(sub.path)
-            elif sub.is_dir():
-                for tdir in os.scandir(sub.path):
-                    if tdir.is_dir() and re.match(r"^T-?\d+", tdir.name):
-                        attempt_dirs.extend(_find_attempts_in_temperature_dir(tdir.path))
-    else:
-        process_parent(root)
+
 
     return attempt_dirs
 
 
 def convert_many(bias_root: str, dark_root: str, flat_root: str) -> None:
+    index_rows: List[Dict[str, object]] = []
+
     datasets = [
-        (bias_root, "BIAS", False),
-        (dark_root, "DARK", False),
-        (flat_root, "FLAT", True),
+        # search depth 2 should be enough for bias (T<temp>/attempt<n>)
+        (bias_root, "BIAS", 2),
+        # dark and flat datasets may include additional folders like exposure time
+        (dark_root, "DARK", 4),
+        (flat_root, "FLAT", 4),
     ]
 
-    for root, caltype, nested in datasets:
+    for root, caltype, depth in datasets:
         print(f"Processing {caltype} dataset at {root}...")
-        for attempt in gather_attempts(root, nested=nested):
+        for attempt in gather_attempts(root, max_depth=depth):
             print(f"  Converting attempt {attempt} ...")
-            convert_attempt(attempt, calibration=caltype)
+            convert_attempt(attempt, calibration=caltype, index_rows=index_rows)
+
+    if index_rows:
+        common_root = os.path.commonpath([bias_root, dark_root, flat_root])
+        csv_path = os.path.join(common_root, "fits_index.csv")
+        fieldnames = sorted({k for row in index_rows for k in row.keys()})
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in index_rows:
+                writer.writerow(row)
+        print(f"Wrote index CSV to {csv_path}")
+
 
 
 def main(argv: Optional[Iterable[str]] = None) -> None:
