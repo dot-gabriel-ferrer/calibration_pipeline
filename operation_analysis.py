@@ -99,37 +99,56 @@ def _make_outlier_animation(frames: List[np.ndarray], times: List[float], outpat
     plt.close(fig)
 
 
-def _plot_logs(rad_df: pd.DataFrame, power_df: pd.DataFrame, outpath: str) -> None:
-    if rad_df.empty and power_df.empty:
+def _plot_logs(
+    rad_df: pd.DataFrame,
+    power_df: pd.DataFrame,
+    outpath: str,
+    frame_times: list[float] | None = None,
+    outlier_counts: list[int] | None = None,
+) -> None:
+    if rad_df.empty and power_df.empty and outlier_counts is None:
         return
+
     time = _get_column(rad_df, ["TimeStamp", "Timestamp", "Time"])
     rad = _get_column(rad_df, ["RadiationLevel", "Dose"])
     temp = _get_column(rad_df, ["Temp", "Temperature"])
     amp = _get_column(power_df, ["Amperage", "Current"])
     volt = _get_column(power_df, ["Voltage"])
 
-    plt.figure(figsize=(8, 6))
+    rows = 4 + (1 if outlier_counts is not None and frame_times is not None else 0)
+    plt.figure(figsize=(8, 1.5 * rows))
     idx = 1
+
     if rad is not None:
-        plt.subplot(4, 1, idx)
+        plt.subplot(rows, 1, idx)
         plt.plot(time, rad)
         plt.ylabel("Radiation")
         idx += 1
+
     if temp is not None:
-        plt.subplot(4, 1, idx)
+        plt.subplot(rows, 1, idx)
         plt.plot(time, temp)
         plt.ylabel("Temperature")
         idx += 1
+
     if amp is not None:
-        plt.subplot(4, 1, idx)
+        plt.subplot(rows, 1, idx)
         plt.plot(time, amp)
         plt.ylabel("Amperage")
         idx += 1
+
     if volt is not None:
-        plt.subplot(4, 1, idx)
+        plt.subplot(rows, 1, idx)
         plt.plot(time, volt)
         plt.ylabel("Voltage")
         idx += 1
+
+    if outlier_counts is not None and frame_times is not None:
+        plt.subplot(rows, 1, idx)
+        plt.plot(frame_times, outlier_counts)
+        plt.ylabel("Outlier Count")
+        idx += 1
+
     plt.xlabel("Time")
     plt.tight_layout()
     plt.savefig(outpath)
@@ -169,8 +188,18 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
     diff_anim_path = os.path.join(output_dir, "outliers.gif")
     _make_outlier_animation(data_list, times, diff_anim_path)
 
+    # compute outlier counts per frame using same logic as _make_outlier_animation
+    outlier_counts: List[int] = []
+    ref = data_list[0]
+    for frame in data_list:
+        diff = frame - ref
+        cur_std = np.std(diff)
+        thresh = 5 * cur_std if cur_std > 0 else 0
+        mask = np.abs(diff) > thresh
+        outlier_counts.append(int(np.sum(mask)))
+
     plot_path = os.path.join(output_dir, "metrics.png")
-    _plot_logs(rad_log, power_log, plot_path)
+    _plot_logs(rad_log, power_log, plot_path, times, outlier_counts)
 
     vmin, vmax = np.percentile(data_list[0], [5, 95])
     plt.figure(figsize=(8, 4))
