@@ -143,6 +143,8 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
 
     rad_def = _load_csv(os.path.join(dir_path, "radiationLogDef.csv"))
     rad_log = _load_csv(os.path.join(dir_path, "radiationLog.csv"))
+    if rad_log.empty:
+        rad_log = _load_csv(os.path.join(dir_path, "radiationLogCompleto.csv"))
     power_log = _load_csv(os.path.join(dir_path, "powerLog.csv"))
 
     fits_paths = _load_frames(dir_path)

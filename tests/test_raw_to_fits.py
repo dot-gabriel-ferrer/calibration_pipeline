@@ -62,6 +62,29 @@ def test_convert_attempt_custom_headers(tmp_path):
     assert hdr["EQTEMP"] == 5
 
 
+def test_convert_attempt_radiation_log_completo(tmp_path):
+    attempt = tmp_path / "attempt0"
+    frames = attempt / "frames"
+    frames.mkdir(parents=True)
+
+    with open(attempt / "configFile.txt", "w") as f:
+        f.write("WIDTH: 2\nHEIGHT: 2\nBIT_DEPTH: 16\n")
+
+    with open(attempt / "radiationLogCompleto.csv", "w") as f:
+        f.write(
+            "FrameNum,TimeStamp,ExtTemperature,ExpTime,RealExpTime,ExpGain,Temperature,InitialTemp\n"
+        )
+        f.write("0,100,0,12,12,1,1.5,1.4\n")
+
+    arr = np.arange(4, dtype=np.uint16).reshape(2, 2)
+    arr.tofile(frames / "f0.raw")
+
+    fits_file = convert_attempt(str(attempt), "BIAS")[0]
+    hdr = fits.getheader(fits_file)
+    assert hdr["FRAMENUM"] == 0
+    assert hdr["TEMP"] == 1.5
+
+
 def test_parse_frame_number_frame_prefix():
     assert parse_frame_number("exp_1.2e-05s_frame0.raw") == 0
 
