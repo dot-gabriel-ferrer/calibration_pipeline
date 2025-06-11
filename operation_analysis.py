@@ -89,7 +89,8 @@ def _make_outlier_animation(frames: List[np.ndarray], times: List[float], outpat
         if coords.size:
             scatter.set_offsets(coords[:, [1, 0]])
         else:
-            scatter.set_offsets([])
+            # scatter offsets expect an (N, 2) array; use shape (0, 2) when empty
+            scatter.set_offsets(np.empty((0, 2)))
         text.set_text(f"t={times[i]:.1f}s")
         return [im, scatter, text]
 
