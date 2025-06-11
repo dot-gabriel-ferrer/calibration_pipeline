@@ -135,7 +135,7 @@ def _plot_logs(rad_df: pd.DataFrame, power_df: pd.DataFrame, outpath: str) -> No
     plt.close()
 
 
-def analyze_directory(dir_path: str) -> None:
+def analyze_directory(dir_path: str, output_dir: str) -> None:
     level = _parse_rads(os.path.basename(dir_path))
     if level is None:
         return
@@ -158,13 +158,15 @@ def analyze_directory(dir_path: str) -> None:
     if not data_list:
         return
 
-    anim_path = os.path.join(dir_path, "frames.gif")
+    os.makedirs(output_dir, exist_ok=True)
+
+    anim_path = os.path.join(output_dir, "frames.gif")
     _make_animation(data_list, times, level, anim_path)
 
-    diff_anim_path = os.path.join(dir_path, "outliers.gif")
+    diff_anim_path = os.path.join(output_dir, "outliers.gif")
     _make_outlier_animation(data_list, times, diff_anim_path)
 
-    plot_path = os.path.join(dir_path, "metrics.png")
+    plot_path = os.path.join(output_dir, "metrics.png")
     _plot_logs(rad_log, power_log, plot_path)
 
     vmin, vmax = np.percentile(data_list[0], [5, 95])
@@ -178,22 +180,35 @@ def analyze_directory(dir_path: str) -> None:
     plt.title("Last")
     plt.axis("off")
     plt.tight_layout()
-    plt.savefig(os.path.join(dir_path, "first_last.png"))
+    plt.savefig(os.path.join(output_dir, "first_last.png"))
     plt.close()
 
 
-def main(root: str = "Operation") -> None:
-    entries = sorted(os.listdir(root))
+
+def main(input_dir: str = "Operation", output_dir: str = "operation_results") -> None:
+    os.makedirs(output_dir, exist_ok=True)
+    entries = sorted(os.listdir(input_dir))
     for entry in tqdm(entries, desc="Directories", unit="dir"):
         dpath = os.path.join(root, entry)
         if os.path.isdir(dpath) and _parse_rads(entry) is not None:
-            analyze_directory(dpath)
+            analyze_directory(dpath, os.path.join(output_dir, entry))
 
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Analyze radiation operation frames")
-    parser.add_argument("root", nargs="?", default="Operation", help="Path to Operation directory")
+    parser.add_argument(
+        "input_dir",
+        nargs="?",
+        default="Operation",
+        help="Directory containing Operation attempts",
+    )
+    parser.add_argument(
+        "output_dir",
+        nargs="?",
+        default="operation_results",
+        help="Directory where analysis outputs will be written",
+    )
     args = parser.parse_args()
-    main(args.root)
+    main(args.input_dir, args.output_dir)
