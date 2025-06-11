@@ -7,8 +7,9 @@ from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
+import shutil
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
 from astropy.io import fits
 
 from utils.raw_to_fits import convert_attempt
@@ -58,7 +59,7 @@ def _read_frame(path: str) -> tuple[np.ndarray, fits.Header]:
 def _make_animation(frames: List[np.ndarray], times: List[float], rads: float, outpath: str) -> None:
     fig, ax = plt.subplots()
     im = ax.imshow(frames[0], cmap="gray", origin="lower", animated=True)
-    text = ax.text(0.02, 0.95, "", color="yellow", transform=ax.transAxes)
+    text = ax.text(0.02, 1.05, "", transform=ax.transAxes, color="#006400")
 
     def update(i):
         im.set_array(frames[i])
@@ -67,6 +68,12 @@ def _make_animation(frames: List[np.ndarray], times: List[float], rads: float, o
 
     ani = FuncAnimation(fig, update, frames=len(frames), interval=100, blit=True)
     ani.save(outpath, writer=PillowWriter(fps=8))
+    mp4_path = os.path.splitext(outpath)[0] + ".mp4"
+    if shutil.which("ffmpeg"):
+        try:
+            ani.save(mp4_path, writer=FFMpegWriter(fps=8))
+        except Exception:
+            pass
     plt.close(fig)
 
 
@@ -77,7 +84,7 @@ def _make_outlier_animation(frames: List[np.ndarray], times: List[float], outpat
     fig, ax = plt.subplots()
     im = ax.imshow(diffs[0], cmap="seismic", origin="lower", animated=True)
     scatter = ax.scatter([], [], facecolors="none", edgecolors="yellow", s=10)
-    text = ax.text(0.02, 0.95, "", color="yellow", transform=ax.transAxes)
+    text = ax.text(0.02, 1.05, "", transform=ax.transAxes, color="#006400")
 
     def update(i):
         diff = diffs[i]
@@ -96,6 +103,12 @@ def _make_outlier_animation(frames: List[np.ndarray], times: List[float], outpat
 
     ani = FuncAnimation(fig, update, frames=len(frames), interval=100, blit=True)
     ani.save(outpath, writer=PillowWriter(fps=8))
+    mp4_path = os.path.splitext(outpath)[0] + ".mp4"
+    if shutil.which("ffmpeg"):
+        try:
+            ani.save(mp4_path, writer=FFMpegWriter(fps=8))
+        except Exception:
+            pass
     plt.close(fig)
 
 
