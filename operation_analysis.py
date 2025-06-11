@@ -3,6 +3,8 @@ import re
 import glob
 from typing import List, Optional
 
+from tqdm import tqdm
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -145,7 +147,7 @@ def analyze_directory(dir_path: str) -> None:
     fits_paths = _load_frames(dir_path)
     data_list: List[np.ndarray] = []
     times: List[float] = []
-    for fp in fits_paths:
+    for fp in tqdm(fits_paths, desc="Loading frames", unit="frame"):
         data, hdr = _read_frame(fp)
         data_list.append(data)
         ts = hdr.get("TIMESTAMP")
@@ -181,7 +183,8 @@ def analyze_directory(dir_path: str) -> None:
 
 
 def main(root: str = "Operation") -> None:
-    for entry in sorted(os.listdir(root)):
+    entries = sorted(os.listdir(root))
+    for entry in tqdm(entries, desc="Directories", unit="dir"):
         dpath = os.path.join(root, entry)
         if os.path.isdir(dpath) and _parse_rads(entry) is not None:
             analyze_directory(dpath)
