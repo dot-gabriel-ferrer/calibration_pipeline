@@ -108,3 +108,19 @@ and calibration type).
 For more options refer to the READMEs within each submodule.
 
 
+
+## Dataset Indexing
+
+The `utils.index_dataset` module scans the converted FITS files and creates a CSV
+summary. Provide the paths to the three dataset sections and the output CSV
+location:
+
+```bash
+python -m utils.index_dataset path/to/TestSection1 path/to/TestSection2 \
+    path/to/TestSection3 index.csv --stage pre --vacuum vacuum
+```
+
+The resulting CSV contains the following columns:
+`PATH`, `CALTYPE`, `STAGE`, `VACUUM`, `TEMP`, `ZEROFRACTION` and `BADFITS`.
+Each row corresponds to a FITS file and the script tags files with
+`BADFITS=True` when more than 1% of their pixels are zero.
