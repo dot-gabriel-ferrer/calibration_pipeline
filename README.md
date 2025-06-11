@@ -23,7 +23,7 @@ The repository also includes a couple of standalone scripts useful for data expl
 
 ## Installation
 
-Install the required Python packages using the repository wide `requirements.txt` file:
+Install the required Python packages, including `pandas`, using the repository wide `requirements.txt` file:
 
 ```bash
 pip install -r requirements.txt

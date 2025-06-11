@@ -1,6 +1,6 @@
 # Testing Dataset Analysis Utilities
 
-The unit tests require `numpy`, `astropy`, and `pytest`.
+The unit tests require `numpy`, `astropy`, `pandas`, and `pytest`.
 
 ## Running the tests
 
