@@ -103,6 +103,8 @@ def _plot_logs(rad_df: pd.DataFrame, power_df: pd.DataFrame, outpath: str) -> No
     if rad_df.empty and power_df.empty:
         return
     time = _get_column(rad_df, ["TimeStamp", "Timestamp", "Time"])
+    if time is None:
+        time = _get_column(power_df, ["TimeStamp", "Timestamp", "Time", "TimeStampPwr"])
     rad = _get_column(rad_df, ["RadiationLevel", "Dose"])
     temp = _get_column(rad_df, ["Temp", "Temperature"])
     amp = _get_column(power_df, ["Amperage", "Current"])
@@ -110,29 +112,35 @@ def _plot_logs(rad_df: pd.DataFrame, power_df: pd.DataFrame, outpath: str) -> No
 
     plt.figure(figsize=(8, 6))
     idx = 1
-    if rad is not None:
+    plotted = False
+    if time is not None and rad is not None:
         plt.subplot(4, 1, idx)
         plt.plot(time, rad)
         plt.ylabel("Radiation")
+        plotted = True
         idx += 1
-    if temp is not None:
+    if time is not None and temp is not None:
         plt.subplot(4, 1, idx)
         plt.plot(time, temp)
         plt.ylabel("Temperature")
+        plotted = True
         idx += 1
-    if amp is not None:
+    if time is not None and amp is not None:
         plt.subplot(4, 1, idx)
         plt.plot(time, amp)
         plt.ylabel("Amperage")
+        plotted = True
         idx += 1
-    if volt is not None:
+    if time is not None and volt is not None:
         plt.subplot(4, 1, idx)
         plt.plot(time, volt)
         plt.ylabel("Voltage")
+        plotted = True
         idx += 1
-    plt.xlabel("Time")
-    plt.tight_layout()
-    plt.savefig(outpath)
+    if plotted:
+        plt.xlabel("Time")
+        plt.tight_layout()
+        plt.savefig(outpath)
     plt.close()
 
 
