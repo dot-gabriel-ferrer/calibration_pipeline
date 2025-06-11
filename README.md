@@ -124,3 +124,17 @@ The resulting CSV contains the following columns:
 `PATH`, `CALTYPE`, `STAGE`, `VACUUM`, `TEMP`, `ZEROFRACTION` and `BADFITS`.
 Each row corresponds to a FITS file and the script tags files with
 `BADFITS=True` when more than 1% of their pixels are zero.
+
+## Index analysis
+
+Once you have created ``index.csv`` you can run ``process_index.py`` to
+automatically build master calibration frames, compute statistics for every
+FITS file and generate simple trend plots.
+
+```bash
+python process_index.py path/to/index.csv output_dir/
+```
+
+The output directory will contain the generated masters, a ``frame_stats.csv``
+file with per-frame metrics and several PNG figures inside ``plots/`` and
+``comparisons/``.
