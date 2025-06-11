@@ -97,13 +97,17 @@ def _make_mean_master(paths: list[str], temps: list[float] | None = None, exps: 
     hdr["DATAMIN"] = float(np.min(stack))
     hdr["DATAMAX"] = float(np.max(stack))
     if temps:
-        hdr["TMIN"] = float(np.min(temps))
-        hdr["TMAX"] = float(np.max(temps))
-        hdr["TAVG"] = float(np.mean(temps))
+        temps = [t for t in temps if t is not None and np.isfinite(t)]
+        if temps:
+            hdr["TMIN"] = float(np.min(temps))
+            hdr["TMAX"] = float(np.max(temps))
+            hdr["TAVG"] = float(np.mean(temps))
     if exps:
-        hdr["EMIN"] = float(np.min(exps))
-        hdr["EMAX"] = float(np.max(exps))
-        hdr["EAVG"] = float(np.mean(exps))
+        exps = [e for e in exps if e is not None and np.isfinite(e)]
+        if exps:
+            hdr["EMIN"] = float(np.min(exps))
+            hdr["EMAX"] = float(np.max(exps))
+            hdr["EAVG"] = float(np.mean(exps))
     return master, hdr
 
 
@@ -135,9 +139,15 @@ def master_bias_by_temp(bias_df: pd.DataFrame, outdir: str) -> dict[float, np.nd
     ):
         eq_temp, _ = _parse_temp_exp_from_path(row["PATH"])
         temp = eq_temp if eq_temp is not None else row["TEMP"]
+        try:
+            temp_val = float(temp)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(temp_val):
+            continue
         attempt = _attempt_from_path(row["PATH"])
-        temp_attempt_groups[(temp, attempt)].append(
-            {"path": row["PATH"], "temp": row["TEMP"]}
+        temp_attempt_groups[(temp_val, attempt)].append(
+            {"path": row["PATH"], "temp": temp_val}
         )
 
     temp_to_attempt_master: dict[float, list[np.ndarray]] = defaultdict(list)
@@ -159,7 +169,7 @@ def master_bias_by_temp(bias_df: pd.DataFrame, outdir: str) -> dict[float, np.nd
         temp_to_attempt_master.items(), desc="Writing master per temp"
     ):
         stack = np.stack(masters, axis=0)
-        temps = temp_to_all_temps[temp]
+        temps = [t for t in temp_to_all_temps[temp] if t is not None and np.isfinite(t)]
         mtemp = np.mean(stack, axis=0)
         hdr = fits.Header()
         hdr["NSOURCE"] = stack.shape[0]
@@ -195,8 +205,15 @@ def master_dark_flat(
         hdr = fits.getheader(row["PATH"])
         exp = p_exp if p_exp is not None else hdr.get("EXPTIME")
         temp = eq_temp if eq_temp is not None else row["TEMP"]
+        try:
+            temp_val = float(temp)
+            exp_val = float(exp)
+        except (TypeError, ValueError):
+            continue
+        if not (np.isfinite(temp_val) and np.isfinite(exp_val)):
+            continue
         attempt = _attempt_from_path(row["PATH"])
-        dark_groups[(temp, exp, attempt)].append({"path": row["PATH"], "temp": row["TEMP"], "exp": exp})
+        dark_groups[(temp_val, exp_val, attempt)].append({"path": row["PATH"], "temp": temp_val, "exp": exp_val})
 
     per_group_masters: dict[tuple[float, float], list[np.ndarray]] = defaultdict(list)
     per_group_temps: dict[tuple[float, float], list[float]] = defaultdict(list)
@@ -214,7 +231,7 @@ def master_dark_flat(
     dark_maps: dict[tuple[float, float], np.ndarray] = {}
     for key, masters in tqdm(per_group_masters.items(), desc="Writing dark master per group"):
         stack = np.stack(masters, axis=0)
-        temps = per_group_temps[key]
+        temps = [t for t in per_group_temps[key] if t is not None and np.isfinite(t)]
         master = np.mean(stack, axis=0)
         hdr = fits.Header()
         hdr["NSOURCE"] = stack.shape[0]
@@ -238,8 +255,15 @@ def master_dark_flat(
         hdr = fits.getheader(row["PATH"])
         exp = p_exp if p_exp is not None else hdr.get("EXPTIME")
         temp = eq_temp if eq_temp is not None else row["TEMP"]
+        try:
+            temp_val = float(temp)
+            exp_val = float(exp)
+        except (TypeError, ValueError):
+            continue
+        if not (np.isfinite(temp_val) and np.isfinite(exp_val)):
+            continue
         attempt = _attempt_from_path(row["PATH"])
-        flat_groups[(temp, exp, attempt)].append({"path": row["PATH"], "temp": row["TEMP"], "exp": exp})
+        flat_groups[(temp_val, exp_val, attempt)].append({"path": row["PATH"], "temp": temp_val, "exp": exp_val})
 
     per_flat_masters: dict[tuple[float, float], list[np.ndarray]] = defaultdict(list)
     per_flat_temps: dict[tuple[float, float], list[float]] = defaultdict(list)
@@ -257,7 +281,7 @@ def master_dark_flat(
     flat_maps: dict[tuple[float, float], np.ndarray] = {}
     for key, masters in tqdm(per_flat_masters.items(), desc="Writing flat master per group"):
         stack = np.stack(masters, axis=0)
-        temps = per_flat_temps[key]
+        temps = [t for t in per_flat_temps[key] if t is not None and np.isfinite(t)]
         master = np.mean(stack, axis=0)
         hdr = fits.Header()
         hdr["NSOURCE"] = stack.shape[0]
