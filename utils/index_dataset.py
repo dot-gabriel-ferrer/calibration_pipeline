@@ -16,6 +16,8 @@ import logging
 import os
 from typing import Iterable, List, Optional
 
+from tqdm import tqdm
+
 import numpy as np
 from astropy.io import fits
 
@@ -95,12 +97,14 @@ def index_sections(
         attempts = gather_attempts(root, max_depth=search_depth)
         if not attempts:
             attempts = [root]
-        for attempt in attempts:
+        for attempt in tqdm(attempts, desc=f"{cal} attempts", ncols=80):
             fits_dir = os.path.join(attempt, "fits")
             patterns = [os.path.join(fits_dir, "*.fits"), os.path.join(attempt, "*.fits")]
+            files: List[str] = []
             for pattern in patterns:
-                for fpath in sorted(glob.glob(pattern)):
-                    rows.append(_process_fits(fpath, cal, ds_stage, ds_vacuum))
+                files.extend(sorted(glob.glob(pattern)))
+            for fpath in tqdm(files, desc=os.path.basename(attempt), leave=False, ncols=80):
+                rows.append(_process_fits(fpath, cal, ds_stage, ds_vacuum))
 
     if not rows:
         logger.warning("No FITS files found")
