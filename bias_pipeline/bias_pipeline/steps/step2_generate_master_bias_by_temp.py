@@ -15,7 +15,7 @@ import numpy as np
 from collections import defaultdict
 from astropy.io import fits
 from tqdm import tqdm
-from steps.utils.utils_scaling import load_fits_scaled_12bit
+from .utils.utils_scaling import load_fits_scaled_12bit
 
 def group_by_temperature(file_list, round_decimals: int = 1):
     """
