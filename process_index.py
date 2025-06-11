@@ -82,21 +82,27 @@ def master_bias_by_temp(bias_df: pd.DataFrame, outdir: str) -> dict[float, np.nd
     os.makedirs(outdir, exist_ok=True)
     temp_attempt_groups: dict[tuple[float, str], list[dict]] = defaultdict(list)
 
-    for _, row in bias_df.iterrows():
+    for _, row in tqdm(
+        bias_df.iterrows(), total=len(bias_df), desc="Grouping bias frames"
+    ):
         temp = row["TEMP"]
         attempt = _attempt_from_path(row["PATH"])
         temp_attempt_groups[(temp, attempt)].append({"original_path": row["PATH"]})
 
     temp_to_attempt_master: dict[float, list[np.ndarray]] = defaultdict(list)
 
-    for (temp, attempt), entries in temp_attempt_groups.items():
+    for (temp, attempt), entries in tqdm(
+        temp_attempt_groups.items(), desc="Combining bias per attempt"
+    ):
         master = combine_frames(entries, method="median")
         out_name = f"master_bias_{attempt}_T{temp:.1f}.fits"
         fits.writeto(os.path.join(outdir, out_name), master.astype(np.float32), overwrite=True)
         temp_to_attempt_master[temp].append(master)
 
     master_per_temp: dict[float, np.ndarray] = {}
-    for temp, masters in temp_to_attempt_master.items():
+    for temp, masters in tqdm(
+        temp_to_attempt_master.items(), desc="Writing master per temp"
+    ):
         stack = np.stack(masters, axis=0)
         mtemp = np.mean(stack, axis=0)
         out_name = f"master_bias_T{temp:.1f}.fits"
@@ -116,7 +122,9 @@ def master_dark_flat(
     os.makedirs(outdir_flat, exist_ok=True)
 
     dark_entries = []
-    for _, row in dark_df.iterrows():
+    for _, row in tqdm(
+        dark_df.iterrows(), total=len(dark_df), desc="Grouping dark frames"
+    ):
         hdr = fits.getheader(row["PATH"])
         exp = hdr.get("EXPTIME")
         dark_entries.append({
@@ -126,12 +134,16 @@ def master_dark_flat(
         })
 
     dark_maps = generate_dark_maps(dark_entries)
-    for (t, e), data in dark_maps.items():
+    for (t, e), data in tqdm(
+        dark_maps.items(), desc="Writing dark masters"
+    ):
         out_name = f"master_dark_T{t:.1f}_E{e:.1f}.fits"
         fits.writeto(os.path.join(outdir_dark, out_name), data.astype(np.float32), overwrite=True)
 
     flat_entries = []
-    for _, row in flat_df.iterrows():
+    for _, row in tqdm(
+        flat_df.iterrows(), total=len(flat_df), desc="Grouping flat frames"
+    ):
         hdr = fits.getheader(row["PATH"])
         exp = hdr.get("EXPTIME")
         flat_entries.append({
@@ -142,7 +154,9 @@ def master_dark_flat(
 
     groups = group_flats_for_master(flat_entries, grouping=("temperature", "exposure"))
     flat_maps: dict[tuple[float, float], np.ndarray] = {}
-    for (t, e), entries in groups.items():
+    for (t, e), entries in tqdm(
+        groups.items(), desc="Writing flat masters"
+    ):
         data, hdr = combine_master_flat(entries)
         out_name = f"master_flat_T{t:.1f}_E{e:.1f}.fits"
         fits.writeto(os.path.join(outdir_flat, out_name), data.astype(np.float32), hdr, overwrite=True)
@@ -232,7 +246,9 @@ def save_comparison_images(
 ) -> None:
     """Save comparison between each master frame and the worst outlier frame."""
     os.makedirs(outdir, exist_ok=True)
-    for key, master in master_dict.items():
+    for key, master in tqdm(
+        master_dict.items(), desc=f"Saving {caltype} comparisons"
+    ):
         if isinstance(key, tuple):
             temp, exptime = key
         else:
