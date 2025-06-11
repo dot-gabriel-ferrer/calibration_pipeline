@@ -43,7 +43,7 @@ def read_config(path: str) -> Dict[str, str]:
 
 
 def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
-    """Read ``temperatureLog.csv`` or ``radiationLog.csv`` and return rows indexed by ``FrameNum``."""
+    """Read ``temperatureLog.csv`` or radiation logs and return rows indexed by ``FrameNum``."""
 
     rows: Dict[int, Dict[str, str]] = {}
     if not os.path.isfile(path):
@@ -245,6 +245,8 @@ def convert_attempt(
     temp_log_path = os.path.join(attempt_path, "temperatureLog.csv")
     if not os.path.isfile(temp_log_path):
         temp_log_path = os.path.join(attempt_path, "radiationLog.csv")
+    if not os.path.isfile(temp_log_path):
+        temp_log_path = os.path.join(attempt_path, "radiationLogCompleto.csv")
 
     raw_dir = os.path.join(attempt_path, raw_subdir)
     if not os.path.isdir(raw_dir):
@@ -344,6 +346,7 @@ def gather_attempts(root: str, max_depth: int = 2) -> List[str]:
             log_exists = (
                 os.path.isfile(os.path.join(dirpath, "temperatureLog.csv"))
                 or os.path.isfile(os.path.join(dirpath, "radiationLog.csv"))
+                or os.path.isfile(os.path.join(dirpath, "radiationLogCompleto.csv"))
             )
             if cfg_exists and log_exists:
                 attempt_dirs.append(dirpath)

@@ -34,3 +34,15 @@ def test_gather_attempts_frames_without_attempt_dir(tmp_path):
     attempts = set(map(pathlib.Path, gather_attempts(str(root), max_depth=6)))
     assert attempt in attempts
 
+
+def test_gather_attempts_radiation_log_completo(tmp_path):
+    root = tmp_path / "TestSection2"
+    attempt = root / "T0"
+    frames = attempt / "frames"
+    frames.mkdir(parents=True)
+    (attempt / "configFile.txt").write_text("WIDTH: 1\nHEIGHT: 1\nBIT_DEPTH: 16\n")
+    (attempt / "radiationLogCompleto.csv").write_text("FrameNum\n0\n")
+
+    attempts = set(map(pathlib.Path, gather_attempts(str(root), max_depth=2)))
+    assert attempt in attempts
+
