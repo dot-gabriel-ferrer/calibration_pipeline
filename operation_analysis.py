@@ -189,7 +189,7 @@ def main(input_dir: str = "Operation", output_dir: str = "operation_results") ->
     os.makedirs(output_dir, exist_ok=True)
     entries = sorted(os.listdir(input_dir))
     for entry in tqdm(entries, desc="Directories", unit="dir"):
-        dpath = os.path.join(root, entry)
+        dpath = os.path.join(input_dir, entry)
         if os.path.isdir(dpath) and _parse_rads(entry) is not None:
             analyze_directory(dpath, os.path.join(output_dir, entry))
 
