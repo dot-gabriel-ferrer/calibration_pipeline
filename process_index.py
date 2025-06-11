@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import argparse
 from collections import defaultdict
+import re
 
 import numpy as np
 import pandas as pd
@@ -37,16 +38,7 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from tqdm import tqdm
 
-from bias_pipeline.bias_pipeline.steps.step2_generate_master_bias_by_temp import (
-    combine_frames,
-)
-from dark_pipeline.dark_pipeline.steps.outgasing_destruction_analysis import (
-    generate_dark_maps,
-)
-from flat_pipeline.flat_pipeline.steps.step5_make_master_flat import (
-    group_flats_for_master,
-    combine_master_flat,
-)
+from utils.raw_to_fits import parse_filename_metadata
 
 
 # -----------------------------------------------------------------------------
@@ -57,6 +49,62 @@ def _load_fits(path: str) -> np.ndarray:
     """Load FITS data as float32."""
     with fits.open(path) as hdul:
         return hdul[0].data.astype(np.float32)
+
+
+def _parse_temp_exp_from_path(path: str) -> tuple[float | None, float | None]:
+    """Return (temperature, exptime) parsed from any component of *path*."""
+    temp = None
+    exp = None
+    for part in path.split(os.sep):
+        e, t = parse_filename_metadata(part)
+        if t is not None and temp is None:
+            try:
+                temp = float(t)
+            except ValueError:
+                pass
+        if e is not None and exp is None:
+            try:
+                exp = float(e)
+            except ValueError:
+                pass
+        if temp is None:
+            m = re.search(r"[Tt](-?[0-9]+(?:\.[0-9]+)?)", part)
+            if m:
+                try:
+                    temp = float(m.group(1))
+                except ValueError:
+                    pass
+        if exp is None:
+            m = re.search(r"([0-9]+(?:\.[0-9]+)?)s", part)
+            if m:
+                try:
+                    exp = float(m.group(1))
+                except ValueError:
+                    pass
+    return temp, exp
+
+
+def _make_mean_master(paths: list[str], temps: list[float] | None = None, exps: list[float] | None = None) -> tuple[np.ndarray, fits.Header]:
+    """Compute mean master image and header with stats."""
+    stack = np.stack([_load_fits(p) for p in paths], axis=0)
+    master = np.mean(stack, axis=0)
+
+    hdr = fits.Header()
+    hdr["NSOURCE"] = len(paths)
+    hdr["MEAN"] = float(np.mean(stack))
+    hdr["MEDIAN"] = float(np.median(stack))
+    hdr["STD"] = float(np.std(stack))
+    hdr["DATAMIN"] = float(np.min(stack))
+    hdr["DATAMAX"] = float(np.max(stack))
+    if temps:
+        hdr["TMIN"] = float(np.min(temps))
+        hdr["TMAX"] = float(np.max(temps))
+        hdr["TAVG"] = float(np.mean(temps))
+    if exps:
+        hdr["EMIN"] = float(np.min(exps))
+        hdr["EMAX"] = float(np.max(exps))
+        hdr["EAVG"] = float(np.mean(exps))
+    return master, hdr
 
 
 def load_index(index_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -85,28 +133,47 @@ def master_bias_by_temp(bias_df: pd.DataFrame, outdir: str) -> dict[float, np.nd
     for _, row in tqdm(
         bias_df.iterrows(), total=len(bias_df), desc="Grouping bias frames"
     ):
-        temp = row["TEMP"]
+        eq_temp, _ = _parse_temp_exp_from_path(row["PATH"])
+        temp = eq_temp if eq_temp is not None else row["TEMP"]
         attempt = _attempt_from_path(row["PATH"])
-        temp_attempt_groups[(temp, attempt)].append({"original_path": row["PATH"]})
+        temp_attempt_groups[(temp, attempt)].append(
+            {"path": row["PATH"], "temp": row["TEMP"]}
+        )
 
     temp_to_attempt_master: dict[float, list[np.ndarray]] = defaultdict(list)
+    temp_to_all_temps: dict[float, list[float]] = defaultdict(list)
 
     for (temp, attempt), entries in tqdm(
         temp_attempt_groups.items(), desc="Combining bias per attempt"
     ):
-        master = combine_frames(entries, method="median")
+        paths = [e["path"] for e in entries]
+        temps = [e["temp"] for e in entries]
+        master, hdr = _make_mean_master(paths, temps=temps)
         out_name = f"master_bias_{attempt}_T{temp:.1f}.fits"
-        fits.writeto(os.path.join(outdir, out_name), master.astype(np.float32), overwrite=True)
+        fits.writeto(os.path.join(outdir, out_name), master.astype(np.float32), hdr, overwrite=True)
         temp_to_attempt_master[temp].append(master)
+        temp_to_all_temps[temp].extend(temps)
 
     master_per_temp: dict[float, np.ndarray] = {}
     for temp, masters in tqdm(
         temp_to_attempt_master.items(), desc="Writing master per temp"
     ):
         stack = np.stack(masters, axis=0)
+        temps = temp_to_all_temps[temp]
         mtemp = np.mean(stack, axis=0)
+        hdr = fits.Header()
+        hdr["NSOURCE"] = stack.shape[0]
+        hdr["MEAN"] = float(np.mean(stack))
+        hdr["MEDIAN"] = float(np.median(stack))
+        hdr["STD"] = float(np.std(stack))
+        hdr["DATAMIN"] = float(np.min(stack))
+        hdr["DATAMAX"] = float(np.max(stack))
+        if temps:
+            hdr["TMIN"] = float(np.min(temps))
+            hdr["TMAX"] = float(np.max(temps))
+            hdr["TAVG"] = float(np.mean(temps))
         out_name = f"master_bias_T{temp:.1f}.fits"
-        fits.writeto(os.path.join(outdir, out_name), mtemp.astype(np.float32), overwrite=True)
+        fits.writeto(os.path.join(outdir, out_name), mtemp.astype(np.float32), hdr, overwrite=True)
         master_per_temp[temp] = mtemp
     return master_per_temp
 
@@ -121,46 +188,92 @@ def master_dark_flat(
     os.makedirs(outdir_dark, exist_ok=True)
     os.makedirs(outdir_flat, exist_ok=True)
 
-    dark_entries = []
-    for _, row in tqdm(
-        dark_df.iterrows(), total=len(dark_df), desc="Grouping dark frames"
-    ):
-        hdr = fits.getheader(row["PATH"])
-        exp = hdr.get("EXPTIME")
-        dark_entries.append({
-            "original_path": row["PATH"],
-            "temperature": row["TEMP"],
-            "exposure_time": exp,
-        })
+    dark_groups: dict[tuple[float, float, str], list[dict]] = defaultdict(list)
 
-    dark_maps = generate_dark_maps(dark_entries)
-    for (t, e), data in tqdm(
-        dark_maps.items(), desc="Writing dark masters"
-    ):
+    for _, row in tqdm(dark_df.iterrows(), total=len(dark_df), desc="Grouping dark frames"):
+        eq_temp, p_exp = _parse_temp_exp_from_path(row["PATH"])
+        hdr = fits.getheader(row["PATH"])
+        exp = p_exp if p_exp is not None else hdr.get("EXPTIME")
+        temp = eq_temp if eq_temp is not None else row["TEMP"]
+        attempt = _attempt_from_path(row["PATH"])
+        dark_groups[(temp, exp, attempt)].append({"path": row["PATH"], "temp": row["TEMP"], "exp": exp})
+
+    per_group_masters: dict[tuple[float, float], list[np.ndarray]] = defaultdict(list)
+    per_group_temps: dict[tuple[float, float], list[float]] = defaultdict(list)
+
+    for (t, e, attempt), entries in tqdm(dark_groups.items(), desc="Combining dark per attempt"):
+        paths = [e["path"] for e in entries]
+        temps = [e["temp"] for e in entries]
+        exps = [e["exp"] for e in entries]
+        master, hdr = _make_mean_master(paths, temps=temps, exps=exps)
+        name = f"master_dark_{attempt}_T{t:.1f}_E{e:.1f}.fits"
+        fits.writeto(os.path.join(outdir_dark, name), master.astype(np.float32), hdr, overwrite=True)
+        per_group_masters[(t, e)].append(master)
+        per_group_temps[(t, e)].extend(temps)
+
+    dark_maps: dict[tuple[float, float], np.ndarray] = {}
+    for key, masters in tqdm(per_group_masters.items(), desc="Writing dark master per group"):
+        stack = np.stack(masters, axis=0)
+        temps = per_group_temps[key]
+        master = np.mean(stack, axis=0)
+        hdr = fits.Header()
+        hdr["NSOURCE"] = stack.shape[0]
+        hdr["MEAN"] = float(np.mean(stack))
+        hdr["MEDIAN"] = float(np.median(stack))
+        hdr["STD"] = float(np.std(stack))
+        hdr["DATAMIN"] = float(np.min(stack))
+        hdr["DATAMAX"] = float(np.max(stack))
+        if temps:
+            hdr["TMIN"] = float(np.min(temps))
+            hdr["TMAX"] = float(np.max(temps))
+            hdr["TAVG"] = float(np.mean(temps))
+        t, e = key
         out_name = f"master_dark_T{t:.1f}_E{e:.1f}.fits"
-        fits.writeto(os.path.join(outdir_dark, out_name), data.astype(np.float32), overwrite=True)
+        fits.writeto(os.path.join(outdir_dark, out_name), master.astype(np.float32), hdr, overwrite=True)
+        dark_maps[key] = master
 
-    flat_entries = []
-    for _, row in tqdm(
-        flat_df.iterrows(), total=len(flat_df), desc="Grouping flat frames"
-    ):
+    flat_groups: dict[tuple[float, float, str], list[dict]] = defaultdict(list)
+    for _, row in tqdm(flat_df.iterrows(), total=len(flat_df), desc="Grouping flat frames"):
+        eq_temp, p_exp = _parse_temp_exp_from_path(row["PATH"])
         hdr = fits.getheader(row["PATH"])
-        exp = hdr.get("EXPTIME")
-        flat_entries.append({
-            "original_path": row["PATH"],
-            "temperature": row["TEMP"],
-            "exposure": exp,
-        })
+        exp = p_exp if p_exp is not None else hdr.get("EXPTIME")
+        temp = eq_temp if eq_temp is not None else row["TEMP"]
+        attempt = _attempt_from_path(row["PATH"])
+        flat_groups[(temp, exp, attempt)].append({"path": row["PATH"], "temp": row["TEMP"], "exp": exp})
 
-    groups = group_flats_for_master(flat_entries, grouping=("temperature", "exposure"))
+    per_flat_masters: dict[tuple[float, float], list[np.ndarray]] = defaultdict(list)
+    per_flat_temps: dict[tuple[float, float], list[float]] = defaultdict(list)
+
+    for (t, e, attempt), entries in tqdm(flat_groups.items(), desc="Combining flat per attempt"):
+        paths = [e["path"] for e in entries]
+        temps = [e["temp"] for e in entries]
+        exps = [e["exp"] for e in entries]
+        master, hdr = _make_mean_master(paths, temps=temps, exps=exps)
+        name = f"master_flat_{attempt}_T{t:.1f}_E{e:.1f}.fits"
+        fits.writeto(os.path.join(outdir_flat, name), master.astype(np.float32), hdr, overwrite=True)
+        per_flat_masters[(t, e)].append(master)
+        per_flat_temps[(t, e)].extend(temps)
+
     flat_maps: dict[tuple[float, float], np.ndarray] = {}
-    for (t, e), entries in tqdm(
-        groups.items(), desc="Writing flat masters"
-    ):
-        data, hdr = combine_master_flat(entries)
+    for key, masters in tqdm(per_flat_masters.items(), desc="Writing flat master per group"):
+        stack = np.stack(masters, axis=0)
+        temps = per_flat_temps[key]
+        master = np.mean(stack, axis=0)
+        hdr = fits.Header()
+        hdr["NSOURCE"] = stack.shape[0]
+        hdr["MEAN"] = float(np.mean(stack))
+        hdr["MEDIAN"] = float(np.median(stack))
+        hdr["STD"] = float(np.std(stack))
+        hdr["DATAMIN"] = float(np.min(stack))
+        hdr["DATAMAX"] = float(np.max(stack))
+        if temps:
+            hdr["TMIN"] = float(np.min(temps))
+            hdr["TMAX"] = float(np.max(temps))
+            hdr["TAVG"] = float(np.mean(temps))
+        t, e = key
         out_name = f"master_flat_T{t:.1f}_E{e:.1f}.fits"
-        fits.writeto(os.path.join(outdir_flat, out_name), data.astype(np.float32), hdr, overwrite=True)
-        flat_maps[(t, e)] = data
+        fits.writeto(os.path.join(outdir_flat, out_name), master.astype(np.float32), hdr, overwrite=True)
+        flat_maps[key] = master
 
     return dark_maps, flat_maps
 
