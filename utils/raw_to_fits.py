@@ -43,7 +43,7 @@ def read_config(path: str) -> Dict[str, str]:
 
 
 def load_csv_metadata(path: str) -> Dict[int, Dict[str, str]]:
-    """Read ``temperatureLog.csv`` and return rows indexed by ``FrameNum``."""
+    """Read ``temperatureLog.csv`` or ``radiationLog.csv`` and return rows indexed by ``FrameNum``."""
 
     rows: Dict[int, Dict[str, str]] = {}
     if not os.path.isfile(path):
@@ -226,7 +226,7 @@ def convert_attempt(
     ----------
     attempt_path: str
         Path to the attempt directory containing ``configFile.txt`` and
-        ``temperatureLog.csv``.
+        either ``temperatureLog.csv`` or ``radiationLog.csv``.
     calibration: str
         Calibration type (``BIAS``, ``DARK`` or ``FLAT``) stored in the header.
     raw_subdir: str, optional
@@ -243,6 +243,8 @@ def convert_attempt(
         config_path = os.path.join(attempt_path, "config.txt")
 
     temp_log_path = os.path.join(attempt_path, "temperatureLog.csv")
+    if not os.path.isfile(temp_log_path):
+        temp_log_path = os.path.join(attempt_path, "radiationLog.csv")
 
     raw_dir = os.path.join(attempt_path, raw_subdir)
     if not os.path.isdir(raw_dir):
@@ -317,9 +319,9 @@ def gather_attempts(root: str, max_depth: int = 2) -> List[str]:
 
     Directories named ``attempt*`` are recognised as attempts.  Additionally, if
     a directory contains a ``frames`` sub-folder along with ``configFile.txt``
-    (or ``config.txt``) and ``temperatureLog.csv`` files, it is also considered
-    an attempt so that datasets lacking explicit ``attempt`` directories are
-    supported.
+    (or ``config.txt``) and a ``temperatureLog.csv`` or ``radiationLog.csv``
+    file, it is also considered an attempt so that datasets lacking explicit
+    ``attempt`` directories are supported.
     """
 
     attempt_dirs: List[str] = []
@@ -339,7 +341,10 @@ def gather_attempts(root: str, max_depth: int = 2) -> List[str]:
             cfg_exists = os.path.isfile(os.path.join(dirpath, "configFile.txt")) or os.path.isfile(
                 os.path.join(dirpath, "config.txt")
             )
-            log_exists = os.path.isfile(os.path.join(dirpath, "temperatureLog.csv"))
+            log_exists = (
+                os.path.isfile(os.path.join(dirpath, "temperatureLog.csv"))
+                or os.path.isfile(os.path.join(dirpath, "radiationLog.csv"))
+            )
             if cfg_exists and log_exists:
                 attempt_dirs.append(dirpath)
 
