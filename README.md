@@ -138,3 +138,30 @@ python process_index.py path/to/index.csv output_dir/
 The output directory will contain the generated masters, a ``frame_stats.csv``
 file with per-frame metrics and several PNG figures inside ``plots/`` and
 ``comparisons/``.
+
+## Automated workflow with ``run_calibration.py``
+
+The ``run_calibration.py`` script ties together dataset conversion,
+indexing and processing.  It calls ``utils.raw_to_fits``,
+``utils.index_dataset`` and ``process_index.py`` for a complete
+end-to-end run.  The first argument selects the dataset layout:
+``standard`` for the usual ``TestSection1``/``2``/``3`` structure or
+``irradiation`` for radiation test campaigns with ``Preirradiation``
+and ``Postirradiation`` folders.
+
+Example for a standard dataset:
+
+```bash
+python run_calibration.py standard path/to/dataset output_dir/
+```
+
+For irradiation campaigns:
+
+```bash
+python run_calibration.py irradiation path/to/irrad_dataset output_dir/
+```
+
+The script writes an ``index.csv`` file in the dataset root and fills the
+given output directory with the generated masters, the
+``frame_stats.csv`` summary and all plots and comparisons described in the
+previous section.
