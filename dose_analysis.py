@@ -399,10 +399,16 @@ def main(index_csv: str, output_dir: str) -> None:
 
     records = []
     for (stage, cal, dose, exp), paths in groups.items():
-        master, hdr = _make_master(paths)
         name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}".replace('/', '_')
         fpath = os.path.join(master_dir, name + ".fits")
-        fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
+
+        if os.path.exists(fpath):
+            master = fits.getdata(fpath)
+            hdr = fits.getheader(fpath)
+        else:
+            master, hdr = _make_master(paths)
+            fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
+
         records.append({
             "STAGE": stage,
             "CALTYPE": cal,
