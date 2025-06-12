@@ -346,34 +346,45 @@ def _pixel_precision_analysis(
         adu_err16 = noise
         adu_err12 = noise / 16.0
 
+        mag_err_mean = float(np.mean(mag_err))
+        adu_err16_mean = float(np.mean(adu_err16))
+        adu_err12_mean = float(np.mean(adu_err12))
+
+        mag_norm = (mag_err - mag_err_mean) / mag_err_mean
+        adu16_norm = (adu_err16 - adu_err16_mean) / adu_err16_mean
+        adu12_norm = (adu_err12 - adu_err12_mean) / adu_err12_mean
+
         tag = f"{d:g}kR"
         fits.writeto(os.path.join(outdir, f"mag_err_{tag}.fits"), mag_err.astype(np.float32), overwrite=True)
         fits.writeto(os.path.join(outdir, f"adu_err16_{tag}.fits"), adu_err16.astype(np.float32), overwrite=True)
         fits.writeto(os.path.join(outdir, f"adu_err12_{tag}.fits"), adu_err12.astype(np.float32), overwrite=True)
 
-        plt.figure(figsize=(6, 5))
-        im = plt.imshow(mag_err, origin="lower", cmap="magma")
-        plt.colorbar(im, label="Magnitude error [mag]")
-        plt.title(f"Magnitude error {tag}")
-        plt.tight_layout()
-        plt.savefig(os.path.join(outdir, f"mag_err_{tag}.png"))
-        plt.close()
+        fig, ax = plt.subplots(figsize=(6, 5))
+        im = ax.imshow(mag_norm, origin="lower", cmap="magma")
+        cbar = plt.colorbar(im, ax=ax, label="Magnitude error [mag]")
+        cbar.ax.text(1.05, 0.5, f"mean={mag_err_mean:.2f}", transform=cbar.ax.transAxes, va="center")
+        ax.set_title(f"Magnitude error {tag}")
+        fig.tight_layout()
+        fig.savefig(os.path.join(outdir, f"mag_err_{tag}.png"), dpi=300)
+        plt.close(fig)
 
-        plt.figure(figsize=(6, 5))
-        im = plt.imshow(adu_err16, origin="lower", cmap="viridis")
-        plt.colorbar(im, label="ADU error (16 bit)")
-        plt.title(f"ADU error 16-bit {tag}")
-        plt.tight_layout()
-        plt.savefig(os.path.join(outdir, f"adu_err16_{tag}.png"))
-        plt.close()
+        fig, ax = plt.subplots(figsize=(6, 5))
+        im = ax.imshow(adu16_norm, origin="lower", cmap="viridis")
+        cbar = plt.colorbar(im, ax=ax, label="ADU error (16 bit)")
+        cbar.ax.text(1.05, 0.5, f"mean={adu_err16_mean:.2f}", transform=cbar.ax.transAxes, va="center")
+        ax.set_title(f"ADU error 16-bit {tag}")
+        fig.tight_layout()
+        fig.savefig(os.path.join(outdir, f"adu_err16_{tag}.png"), dpi=300)
+        plt.close(fig)
 
-        plt.figure(figsize=(6, 5))
-        im = plt.imshow(adu_err12, origin="lower", cmap="viridis")
-        plt.colorbar(im, label="ADU error (12 bit)")
-        plt.title(f"ADU error 12-bit {tag}")
-        plt.tight_layout()
-        plt.savefig(os.path.join(outdir, f"adu_err12_{tag}.png"))
-        plt.close()
+        fig, ax = plt.subplots(figsize=(6, 5))
+        im = ax.imshow(adu12_norm, origin="lower", cmap="viridis")
+        cbar = plt.colorbar(im, ax=ax, label="ADU error (12 bit)")
+        cbar.ax.text(1.05, 0.5, f"mean={adu_err12_mean:.2f}", transform=cbar.ax.transAxes, va="center")
+        ax.set_title(f"ADU error 12-bit {tag}")
+        fig.tight_layout()
+        fig.savefig(os.path.join(outdir, f"adu_err12_{tag}.png"), dpi=300)
+        plt.close(fig)
 
         h, w = mag_err.shape
         my, mx = h // 2, w // 2
