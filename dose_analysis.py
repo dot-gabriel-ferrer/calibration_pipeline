@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 from astropy.io import fits
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from operation_analysis import _parse_rads
 from process_index import _make_mean_master, _parse_temp_exp_from_path
@@ -80,7 +81,7 @@ def _make_master(paths: List[str]) -> Tuple[np.ndarray, fits.Header]:
     temps = []
     means = []
     stds = []
-    for p in paths:
+    for p in tqdm(paths, desc="Reading frames", unit="frame", leave=False):
         data = fits.getdata(p).astype(np.float32)
         stack.append(data)
         temps.append(_temperature_from_header(p))
@@ -101,7 +102,9 @@ def _make_master(paths: List[str]) -> Tuple[np.ndarray, fits.Header]:
 
 def _stack_stats(paths: List[str]) -> Tuple[np.ndarray, np.ndarray]:
     """Return per-pixel mean and standard deviation for *paths*."""
-    stack = [fits.getdata(p).astype(np.float32) for p in paths]
+    stack = []
+    for p in tqdm(paths, desc="Stacking", unit="frame", leave=False):
+        stack.append(fits.getdata(p).astype(np.float32))
     arr = np.stack(stack, axis=0)
     mean = np.mean(arr, axis=0)
     std = np.std(arr, axis=0)
@@ -111,8 +114,13 @@ def _stack_stats(paths: List[str]) -> Tuple[np.ndarray, np.ndarray]:
 def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None], List[str]]:
     groups: Dict[Tuple[str, str, float, float | None], List[str]] = defaultdict(list)
     during_doses: List[float] = []
-
-    for _, row in df.iterrows():
+    for _, row in tqdm(
+        df.iterrows(),
+        total=len(df),
+        desc="Scanning doses",
+        unit="file",
+        leave=False,
+    ):
         if row["STAGE"] == "during":
             d = _dose_from_path(row["PATH"])
             if d is not None:
@@ -121,7 +129,13 @@ def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None],
     min_dose = min(during_doses) if during_doses else 0.0
     max_dose = max(during_doses) if during_doses else 0.0
 
-    for _, row in df.iterrows():
+    for _, row in tqdm(
+        df.iterrows(),
+        total=len(df),
+        desc="Grouping paths",
+        unit="file",
+        leave=False,
+    ):
         stage = row["STAGE"]
         cal = row["CALTYPE"]
         dose = _dose_from_path(row["PATH"])
@@ -212,7 +226,7 @@ def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
     doses = sorted(set(bias["DOSE"]) & set(dark["DOSE"]))
     full_scale = 4096 * 16.0  # ADU
     rows = []
-    for d in doses:
+    for d in tqdm(doses, desc="Per-dose analysis", unit="dose"):
         b = bias[bias["DOSE"] == d]
         dk = dark[dark["DOSE"] == d]
 
@@ -330,7 +344,7 @@ def _pixel_precision_analysis(
     zone_adu: Dict[str, List[Tuple[float, float]]] = {z: [] for z in zone_labels}
     stats_rows: List[dict[str, float]] = []
 
-    for d in doses:
+    for d in tqdm(doses, desc="Per-dose pixel analysis", unit="dose"):
         b_paths = [p for k, v in bias_groups.items() if k[2] == d for p in v]
         d_paths = [p for k, v in dark_groups.items() if k[2] == d for p in v]
         if not b_paths or not d_paths:
@@ -555,7 +569,9 @@ def main(index_csv: str, output_dir: str) -> None:
     os.makedirs(master_dir, exist_ok=True)
 
     records = []
-    for (stage, cal, dose, exp), paths in groups.items():
+    for (stage, cal, dose, exp), paths in tqdm(
+        groups.items(), desc="Generating masters", unit="group"
+    ):
         name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}".replace('/', '_')
         fpath = os.path.join(master_dir, name + ".fits")
 
