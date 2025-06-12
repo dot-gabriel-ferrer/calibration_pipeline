@@ -1,7 +1,7 @@
 import numpy as np
 from astropy.io import fits
 
-from operation_analysis import _load_frames, main
+from operation_analysis import _load_frames, main, _plot_intensity_stats
 import os
 
 
@@ -40,3 +40,20 @@ def test_main_dataset_filter(monkeypatch, tmp_path):
     main(str(in_dir), str(out_dir), datasets=["20kRads"])
 
     assert called == ["20kRads"]
+
+
+def test_plot_intensity_stats_polyfit_failure(monkeypatch, tmp_path):
+    out = tmp_path / "plot.png"
+
+    means = [1.0, 2.0, 3.0]
+    stds = [0.1, 0.2, 0.3]
+    times = [0.0, 1.0, 2.0]
+
+    def raise_linalg(*args, **kwargs):
+        raise np.linalg.LinAlgError("fail")
+
+    monkeypatch.setattr(np, "polyfit", raise_linalg)
+
+    _plot_intensity_stats(means, stds, times, str(out))
+
+    assert out.exists()
