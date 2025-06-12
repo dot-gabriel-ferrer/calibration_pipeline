@@ -40,8 +40,18 @@ def _infer_stage(path: str) -> Optional[str]:
 
 
 def _infer_vacuum(path: str) -> Optional[str]:
-    for part in path.split(os.sep):
+    """Infer the vacuum state from a directory path.
+
+    The search is performed from the deepest directory upwards so that
+    lower-level segments override higher ones.  Tokens such as ``"novac"`` or
+    ``"no_vac"`` explicitly indicate the absence of vacuum (i.e. ``"air"``) and
+    have priority over generic ``"vac"`` matches.
+    """
+
+    for part in reversed(path.split(os.sep)):
         low = part.lower()
+        if "novac" in low or "no_vac" in low:
+            return "air"
         if "vac" in low:
             return "vacuum"
         if "atm" in low or "air" in low:
