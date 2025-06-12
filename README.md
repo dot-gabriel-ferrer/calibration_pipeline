@@ -165,6 +165,10 @@ For irradiation campaigns:
 ```bash
 python run_calibration.py irradiation path/to/irrad_dataset output_dir/
 ```
+In this mode the script inspects every ``Bias``, ``Darks`` and ``Flats``
+folder. Raw-to-FITS conversion is only executed when no ``fits/``
+directory with FITS files is present so previously converted data is not
+processed again.
 
 The script writes an ``index.csv`` file in the dataset root and fills the
 given output directory with the generated masters, the
