@@ -123,6 +123,7 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
         e = e.iloc[order]
         plt.plot(x, y, label="during")
         plt.fill_between(x, y - e, y + e, alpha=0.3)
+
         plt.xlabel("Dose [kRad]")
         plt.ylabel("Mean ADU")
         plt.title(cal)
@@ -168,7 +169,6 @@ def _plot_photometric_precision(df: pd.DataFrame, outdir: str) -> None:
     plt.tight_layout()
     plt.savefig(os.path.join(outdir, "photometric_precision_vs_dose.png"))
     plt.close()
-
 
 def main(index_csv: str, output_dir: str) -> None:
     df = pd.read_csv(index_csv)

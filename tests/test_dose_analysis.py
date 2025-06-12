@@ -11,6 +11,7 @@ from dose_analysis import (
 )
 
 
+
 def _make_fits(path, value, temp=10.0, exp=1.0):
     hdu = fits.PrimaryHDU(np.full((2, 2), value, dtype=np.float32))
     hdu.header['TEMP'] = temp
@@ -79,3 +80,4 @@ def test_compute_photometric_precision():
     df = _compute_photometric_precision(summary)
     assert set(df['DOSE']) == {1.0, 2.0}
     assert df['MAG_ERR'].iloc[0] < df['MAG_ERR'].iloc[1]
+
