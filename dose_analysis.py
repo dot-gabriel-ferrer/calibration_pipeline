@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 from astropy.io import fits
 import matplotlib.pyplot as plt
+from matplotlib.colors import SymLogNorm
 from tqdm import tqdm
 
 from operation_analysis import _parse_rads
@@ -524,6 +525,21 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                 plt.tight_layout()
                 plt.savefig(os.path.join(outdir, f"{cal.lower()}_first_vs_pre.png"))
                 plt.close()
+
+                abs_max = max(abs(vmin), abs(vmax))
+                log_norm = SymLogNorm(linthresh=abs_max * 0.01 + 1e-9, vmin=-abs_max, vmax=abs_max)
+                plt.figure(figsize=(6, 5))
+                im = plt.imshow(
+                    diff_img,
+                    origin="lower",
+                    cmap="coolwarm",
+                    norm=log_norm,
+                )
+                plt.colorbar(im, label=label)
+                plt.title(f"{cal} first vs pre (log)")
+                plt.tight_layout()
+                plt.savefig(os.path.join(outdir, f"{cal.lower()}_first_vs_pre_log.png"))
+                plt.close()
         if not dmax.empty and not p_post.empty:
             diff = float(p_post["MEAN"].mean() - dmax["MEAN"].mean())
             rows.append({"CALTYPE": cal, "CMP": "post_vs_last", "DIFF": diff})
@@ -557,6 +573,21 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                 plt.title(f"{cal} post vs last")
                 plt.tight_layout()
                 plt.savefig(os.path.join(outdir, f"{cal.lower()}_post_vs_last.png"))
+                plt.close()
+
+                abs_max = max(abs(vmin), abs(vmax))
+                log_norm = SymLogNorm(linthresh=abs_max * 0.01 + 1e-9, vmin=-abs_max, vmax=abs_max)
+                plt.figure(figsize=(6, 5))
+                im = plt.imshow(
+                    diff_img,
+                    origin="lower",
+                    cmap="coolwarm",
+                    norm=log_norm,
+                )
+                plt.colorbar(im, label=label)
+                plt.title(f"{cal} post vs last (log)")
+                plt.tight_layout()
+                plt.savefig(os.path.join(outdir, f"{cal.lower()}_post_vs_last_log.png"))
                 plt.close()
 
     if rows:
