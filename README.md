@@ -117,12 +117,17 @@ For more options refer to the READMEs within each submodule.
 ## Dataset Indexing
 
 The `utils.index_dataset` module scans the converted FITS files and creates a CSV
-summary. Provide the paths to the three dataset sections and the output CSV
-location:
+summary. Provide the paths to the dataset sections and the output CSV location.
+The `--bias`, `--dark` and `--flat` options may be specified multiple times to
+index several datasets at once.  If `--stage` or `--vacuum` are omitted they are
+automatically inferred from the directory names.
 
 ```bash
-python -m utils.index_dataset path/to/TestSection1 path/to/TestSection2 \
-    path/to/TestSection3 index.csv --stage pre --vacuum vacuum
+python -m utils.index_dataset \
+    --bias path/to/ds1/TestSection1 --bias path/to/ds2/TestSection1 \
+    --dark path/to/TestSection2 \
+    --flat path/to/TestSection3 \
+    index.csv
 ```
 
 The resulting CSV contains the following columns:
