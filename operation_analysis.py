@@ -383,7 +383,7 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
     _make_animation(data_list, times, level, anim_path)
 
     # detect outliers across the sequence
-    masks, cumulative = _detect_outliers(data_list, sigma=5)
+    masks, cumulative = _detect_outliers(data_list, sigma=2)
 
     diff_anim_path = os.path.join(output_dir, "outliers.gif")
     _make_outlier_animation(data_list, masks, times, diff_anim_path)
