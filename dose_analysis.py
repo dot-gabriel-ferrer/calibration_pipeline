@@ -264,7 +264,59 @@ def _plot_photometric_precision(df: pd.DataFrame, outdir: str) -> None:
     plt.close(fig)
 
 
-def _pixel_precision_analysis(groups: Dict[Tuple[str, str, float, float | None], List[str]], outdir: str) -> None:
+def _plot_error_vs_dose(df: pd.DataFrame, outdir: str) -> None:
+    """Plot global magnitude/ADU errors as a function of dose."""
+    if df.empty:
+        return
+    os.makedirs(outdir, exist_ok=True)
+    df = df.sort_values("DOSE")
+
+    fig_m, ax_m = plt.subplots()
+    ax_m.errorbar(
+        df["DOSE"],
+        df["MAG_MEAN"],
+        yerr=df.get("MAG_STD"),
+        fmt="o-",
+    )
+    ax_m.fill_between(
+        df["DOSE"],
+        df["MAG_MEAN"] - df.get("MAG_STD", 0),
+        df["MAG_MEAN"] + df.get("MAG_STD", 0),
+        alpha=0.2,
+    )
+    ax_m.set_xlabel("Dose [kRad]")
+    ax_m.set_ylabel("Magnitude error [mag]")
+    ax_m.set_title("Magnitude error vs dose")
+    ax_m.grid(True, ls="--", alpha=0.5)
+    fig_m.tight_layout()
+    fig_m.savefig(os.path.join(outdir, "mag_err_vs_dose.png"))
+    plt.close(fig_m)
+
+    fig_a, ax_a = plt.subplots()
+    ax_a.errorbar(
+        df["DOSE"],
+        df["ADU_MEAN"],
+        yerr=df.get("ADU_STD"),
+        fmt="o-",
+    )
+    ax_a.fill_between(
+        df["DOSE"],
+        df["ADU_MEAN"] - df.get("ADU_STD", 0),
+        df["ADU_MEAN"] + df.get("ADU_STD", 0),
+        alpha=0.2,
+    )
+    ax_a.set_xlabel("Dose [kRad]")
+    ax_a.set_ylabel("ADU error (16 bit)")
+    ax_a.set_title("ADU error vs dose")
+    ax_a.grid(True, ls="--", alpha=0.5)
+    fig_a.tight_layout()
+    fig_a.savefig(os.path.join(outdir, "adu_err_vs_dose.png"))
+    plt.close(fig_a)
+
+
+def _pixel_precision_analysis(
+    groups: Dict[Tuple[str, str, float, float | None], List[str]], outdir: str
+) -> pd.DataFrame:
     """Generate per-pixel magnitude and ADU error maps for each dose."""
     bias_groups = {k: v for k, v in groups.items() if k[0] == "during" and k[1] == "BIAS"}
     dark_groups = {k: v for k, v in groups.items() if k[0] == "during" and k[1] == "DARK"}
@@ -276,6 +328,7 @@ def _pixel_precision_analysis(groups: Dict[Tuple[str, str, float, float | None],
     zone_labels = ["Q1", "Q2", "Q3", "Q4"]
     zone_mag: Dict[str, List[Tuple[float, float]]] = {z: [] for z in zone_labels}
     zone_adu: Dict[str, List[Tuple[float, float]]] = {z: [] for z in zone_labels}
+    stats_rows: List[dict[str, float]] = []
 
     for d in doses:
         b_paths = [p for k, v in bias_groups.items() if k[2] == d for p in v]
@@ -334,6 +387,16 @@ def _pixel_precision_analysis(groups: Dict[Tuple[str, str, float, float | None],
             zone_mag[label].append((d, float(np.mean(mag_err[ys, xs]))))
             zone_adu[label].append((d, float(np.mean(adu_err16[ys, xs]))))
 
+        stats_rows.append(
+            {
+                "DOSE": float(d),
+                "MAG_MEAN": float(np.mean(mag_err)),
+                "MAG_STD": float(np.std(mag_err)),
+                "ADU_MEAN": float(np.mean(adu_err16)),
+                "ADU_STD": float(np.std(adu_err16)),
+            }
+        )
+
     # Zone plots
     fig_m, ax_m = plt.subplots()
     for label, vals in zone_mag.items():
@@ -366,6 +429,12 @@ def _pixel_precision_analysis(groups: Dict[Tuple[str, str, float, float | None],
     fig_a.tight_layout()
     fig_a.savefig(os.path.join(outdir, "zone_adu_error.png"))
     plt.close(fig_a)
+
+    stats_df = pd.DataFrame(stats_rows)
+    if not stats_df.empty:
+        stats_df.to_csv(os.path.join(outdir, "pixel_precision_stats.csv"), index=False)
+        _plot_error_vs_dose(stats_df, outdir)
+    return stats_df
 
 
 def _compare_stage_differences(summary: pd.DataFrame, outdir: str) -> None:
@@ -451,7 +520,7 @@ def main(index_csv: str, output_dir: str) -> None:
 
     _save_plot(summary, os.path.join(output_dir, "plots"))
 
-    _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
+    pix_df = _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
     _compare_stage_differences(summary, os.path.join(output_dir, "analysis"))
     _fit_dose_response(summary, os.path.join(output_dir, "analysis"))
 
