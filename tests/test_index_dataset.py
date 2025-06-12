@@ -57,3 +57,37 @@ def test_csv_mixed_caltypes(tmp_path):
         rows = list(csv.DictReader(f))
     caltypes = {row['CALTYPE'] for row in rows}
     assert caltypes == {'BIAS', 'DARK', 'FLAT'}
+
+
+def _setup_dataset(root, suffix=""):
+    bias = root / "TestSection1" / "T0" / "attempt0" / "fits"
+    dark = root / "TestSection2" / "T0" / "attempt0" / "fits"
+    flat = root / "TestSection3" / "T0" / "attempt0" / "fits"
+    for d in (bias, dark, flat):
+        d.mkdir(parents=True)
+    _make_fits(bias / f"b{suffix}.fits", np.ones((1, 1)), temp=0)
+    _make_fits(dark / f"d{suffix}.fits", np.ones((1, 1)), temp=0)
+    _make_fits(flat / f"f{suffix}.fits", np.ones((1, 1)), temp=0)
+    return bias.parent.parent, dark.parent.parent, flat.parent.parent
+
+
+def test_multiple_dataset_lists(tmp_path):
+    b1, d1, f1 = _setup_dataset(tmp_path / "ds1", "1")
+    b2, d2, f2 = _setup_dataset(tmp_path / "ds2", "2")
+
+    csv_path = tmp_path / "index.csv"
+    index_sections(
+        [str(b1), str(b2)],
+        [str(d1), str(d2)],
+        [str(f1), str(f2)],
+        str(csv_path),
+        stage="pre",
+        vacuum="vacuum",
+        search_depth=2,
+    )
+
+    with open(csv_path) as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == 6  # two datasets with one file per caltype
+
