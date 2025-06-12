@@ -514,33 +514,54 @@ def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
     os.makedirs(outdir, exist_ok=True)
     rows = []
     for cal in df["CALTYPE"].unique():
-        sub = df[df["CALTYPE"] == cal]
-        x = sub["DOSE"].astype(float)
-        y = sub["MEAN"].astype(float)
-        if len(x) < 2:
-            continue
-        coeff = np.polyfit(x, y, 1)
-        rows.append({"CALTYPE": cal, "SLOPE": float(coeff[0]), "INTERCEPT": float(coeff[1])})
+        cal_df = df[df["CALTYPE"] == cal]
 
-        # Plot data, fitted line and residuals
-        fig, (ax_top, ax_resid) = plt.subplots(2, 1, sharex=True)
-        ax_top.scatter(x, y, label="data")
-        xfit = np.linspace(float(x.min()), float(x.max()), 100)
-        yfit = coeff[0] * xfit + coeff[1]
-        ax_top.plot(xfit, yfit, color="C1", label="fit")
-        ax_top.set_ylabel("Mean ADU")
-        ax_top.legend()
+        if cal == "DARK":
+            exp_values = list(sorted(cal_df["EXPTIME"].dropna().unique()))
+            groups = [(exp, cal_df[np.isclose(cal_df["EXPTIME"], exp)]) for exp in exp_values]
+            if cal_df["EXPTIME"].isna().any():
+                groups.append((None, cal_df[cal_df["EXPTIME"].isna()]))
+        else:
+            groups = [(None, cal_df)]
 
-        resid = y - (coeff[0] * x + coeff[1])
-        ax_resid.scatter(x, resid)
-        ax_resid.axhline(0.0, color="C1", ls="--")
-        ax_resid.set_xlabel("Dose [kRad]")
-        ax_resid.set_ylabel("Residual ADU")
+        for exp, sub in groups:
+            if len(sub) < 2:
+                continue
+            x = sub["DOSE"].astype(float)
+            y = sub["MEAN"].astype(float)
+            coeff = np.polyfit(x, y, 1)
 
-        fig.suptitle(f"{cal} mean vs dose")
-        fig.tight_layout()
-        fig.savefig(os.path.join(outdir, f"dose_model_{cal.lower()}.png"))
-        plt.close(fig)
+            row = {
+                "CALTYPE": cal,
+                "SLOPE": float(coeff[0]),
+                "INTERCEPT": float(coeff[1]),
+            }
+            if exp is not None:
+                row["EXPTIME"] = float(exp)
+            rows.append(row)
+
+            # Plot data, fitted line and residuals
+            fig, (ax_top, ax_resid) = plt.subplots(2, 1, sharex=True)
+            ax_top.scatter(x, y, label="data")
+            xfit = np.linspace(float(x.min()), float(x.max()), 100)
+            yfit = coeff[0] * xfit + coeff[1]
+            ax_top.plot(xfit, yfit, color="C1", label="fit")
+            ax_top.set_ylabel("Mean ADU")
+            ax_top.legend()
+    
+            resid = y - (coeff[0] * x + coeff[1])
+            ax_resid.scatter(x, resid)
+            ax_resid.axhline(0.0, color="C1", ls="--")
+            ax_resid.set_xlabel("Dose [kRad]")
+            ax_resid.set_ylabel("Residual ADU")
+    
+            fig.suptitle(f"{cal} mean vs dose" + (f" E={exp:g}s" if exp is not None else ""))
+            fig.tight_layout()
+            fname = f"dose_model_{cal.lower()}"
+            if exp is not None:
+                fname += f"_E{str(exp).replace('.', 'p')}s"
+            fig.savefig(os.path.join(outdir, fname + ".png"))
+            plt.close(fig)
 
     if rows:
         pd.DataFrame(rows).to_csv(os.path.join(outdir, "dose_model.csv"), index=False)
