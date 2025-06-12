@@ -103,22 +103,27 @@ def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None],
 
 
 def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
+    """Plot mean signal vs dose only for the ``during`` stage."""
+    summary = summary[summary["STAGE"] == "during"]
+    if summary.empty:
+        return
     os.makedirs(outdir, exist_ok=True)
     for cal in sorted(summary["CALTYPE"].unique()):
         plt.figure()
-        for stage in sorted(summary["STAGE"].unique()):
-            sub = summary[(summary["CALTYPE"] == cal) & (summary["STAGE"] == stage)]
-            if sub.empty:
-                continue
-            x = sub["DOSE"].astype(float)
-            y = sub["MEAN"].astype(float)
-            e = sub["STD"].astype(float)
-            order = np.argsort(x)
-            x = x.iloc[order]
-            y = y.iloc[order]
-            e = e.iloc[order]
-            plt.plot(x, y, label=stage)
-            plt.fill_between(x, y - e, y + e, alpha=0.3)
+        sub = summary[summary["CALTYPE"] == cal]
+        if sub.empty:
+            plt.close()
+            continue
+        x = sub["DOSE"].astype(float)
+        y = sub["MEAN"].astype(float)
+        e = sub["STD"].astype(float)
+        order = np.argsort(x)
+        x = x.iloc[order]
+        y = y.iloc[order]
+        e = e.iloc[order]
+        plt.plot(x, y, label="during")
+        plt.fill_between(x, y - e, y + e, alpha=0.3)
+
         plt.xlabel("Dose [kRad]")
         plt.ylabel("Mean ADU")
         plt.title(cal)
@@ -128,6 +133,42 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
         plt.savefig(os.path.join(outdir, fname))
         plt.close()
 
+
+def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
+    """Return estimated photometric precision for ``during`` bias/dark."""
+    df = summary[summary["STAGE"] == "during"]
+    bias = df[df["CALTYPE"] == "BIAS"]
+    dark = df[df["CALTYPE"] == "DARK"]
+    doses = sorted(set(bias["DOSE"]) & set(dark["DOSE"]))
+    full_scale = 4096 * 16.0  # ADU
+    rows = []
+    for d in doses:
+        b = bias[bias["DOSE"] == d]
+        dk = dark[dark["DOSE"] == d]
+        b_mean = b["MEAN"].mean()
+        b_std = b["STD"].mean()
+        d_std = dk["STD"].mean()
+        signal = (full_scale - b_mean) / 2.0
+        noise = np.sqrt(signal + b_std**2 + d_std**2)
+        snr = signal / noise if noise > 0 else 0.0
+        mag_err = 1.0857 / snr if snr > 0 else np.inf
+        rows.append({"DOSE": float(d), "MAG_ERR": float(mag_err)})
+    return pd.DataFrame(rows)
+
+
+def _plot_photometric_precision(df: pd.DataFrame, outdir: str) -> None:
+    if df.empty:
+        return
+    os.makedirs(outdir, exist_ok=True)
+    df = df.sort_values("DOSE")
+    plt.figure()
+    plt.plot(df["DOSE"], df["MAG_ERR"], marker="o")
+    plt.xlabel("Dose [kRad]")
+    plt.ylabel("Magnitude error [mag]")
+    plt.title("Photometric precision during irradiation")
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, "photometric_precision_vs_dose.png"))
+    plt.close()
 
 def main(index_csv: str, output_dir: str) -> None:
     df = pd.read_csv(index_csv)
@@ -158,6 +199,11 @@ def main(index_csv: str, output_dir: str) -> None:
     summary.to_csv(summary_csv, index=False)
 
     _save_plot(summary, os.path.join(output_dir, "plots"))
+
+    precision_df = _compute_photometric_precision(summary)
+    precision_csv = os.path.join(output_dir, "photometric_precision.csv")
+    precision_df.to_csv(precision_csv, index=False)
+    _plot_photometric_precision(precision_df, os.path.join(output_dir, "plots"))
 
 
 if __name__ == "__main__":
