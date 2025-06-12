@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 from astropy.io import fits
@@ -8,6 +9,7 @@ from dose_analysis import (
     _make_master,
     _compute_photometric_precision,
     _save_plot,
+    _fit_dose_response,
 )
 
 
@@ -81,4 +83,25 @@ def test_compute_photometric_precision():
     df = _compute_photometric_precision(summary)
     assert set(df['DOSE']) == {1.0, 2.0}
     assert df['MAG_ERR'].iloc[0] < df['MAG_ERR'].iloc[1]
+
+
+def test_fit_dose_response_outputs(tmp_path, monkeypatch):
+    summary = pd.DataFrame([
+        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
+        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.1},
+        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 0.1},
+        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 12.0, "STD": 0.1},
+    ])
+
+    saved = []
+
+    def fake_savefig(self, path, *a, **k):
+        saved.append(os.path.basename(path))
+
+    monkeypatch.setattr('matplotlib.figure.Figure.savefig', fake_savefig)
+
+    _fit_dose_response(summary, tmp_path)
+
+    assert (tmp_path / "dose_model.csv").exists()
+    assert sorted(saved) == ["dose_model_bias.png", "dose_model_dark.png"]
 

@@ -361,6 +361,27 @@ def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
             continue
         coeff = np.polyfit(x, y, 1)
         rows.append({"CALTYPE": cal, "SLOPE": float(coeff[0]), "INTERCEPT": float(coeff[1])})
+
+        # Plot data, fitted line and residuals
+        fig, (ax_top, ax_resid) = plt.subplots(2, 1, sharex=True)
+        ax_top.scatter(x, y, label="data")
+        xfit = np.linspace(float(x.min()), float(x.max()), 100)
+        yfit = coeff[0] * xfit + coeff[1]
+        ax_top.plot(xfit, yfit, color="C1", label="fit")
+        ax_top.set_ylabel("Mean ADU")
+        ax_top.legend()
+
+        resid = y - (coeff[0] * x + coeff[1])
+        ax_resid.scatter(x, resid)
+        ax_resid.axhline(0.0, color="C1", ls="--")
+        ax_resid.set_xlabel("Dose [kRad]")
+        ax_resid.set_ylabel("Residual ADU")
+
+        fig.suptitle(f"{cal} mean vs dose")
+        fig.tight_layout()
+        fig.savefig(os.path.join(outdir, f"dose_model_{cal.lower()}.png"))
+        plt.close(fig)
+
     if rows:
         pd.DataFrame(rows).to_csv(os.path.join(outdir, "dose_model.csv"), index=False)
 
