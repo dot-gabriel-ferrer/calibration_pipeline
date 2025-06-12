@@ -437,7 +437,13 @@ def _pixel_precision_analysis(
     return stats_df
 
 
-def _compare_stage_differences(summary: pd.DataFrame, outdir: str) -> None:
+def _master_path(cal: str, stage: str, dose: float, exp: float | None, master_dir: str) -> str:
+    """Return the path to a master frame with the given parameters."""
+    name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}"
+    return os.path.join(master_dir, name.replace('/', '_') + ".fits")
+
+
+def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: str) -> None:
     """Store differences between initial/last irradiation values and pre/post."""
     df = summary
     during = df[df["STAGE"] == "during"]
@@ -449,6 +455,7 @@ def _compare_stage_differences(summary: pd.DataFrame, outdir: str) -> None:
     max_dose = during["DOSE"].max()
 
     rows = []
+    os.makedirs(outdir, exist_ok=True)
     for cal in ("BIAS", "DARK"):
         dmin = during[(during["CALTYPE"] == cal) & (during["DOSE"] == min_dose)]
         dmax = during[(during["CALTYPE"] == cal) & (during["DOSE"] == max_dose)]
@@ -457,12 +464,45 @@ def _compare_stage_differences(summary: pd.DataFrame, outdir: str) -> None:
         if not dmin.empty and not p_pre.empty:
             diff = float(dmin["MEAN"].mean() - p_pre["MEAN"].mean())
             rows.append({"CALTYPE": cal, "CMP": "first_vs_pre", "DIFF": diff})
+
+            # Heatmap of first during minus pre
+            ref_row = p_pre.iloc[0]
+            targ_row = dmin.iloc[0]
+            ref_path = _master_path(cal, "pre", ref_row["DOSE"], ref_row["EXPTIME"], master_dir)
+            targ_path = _master_path(cal, "during", targ_row["DOSE"], targ_row["EXPTIME"], master_dir)
+            if os.path.isfile(ref_path) and os.path.isfile(targ_path):
+                ref = fits.getdata(ref_path)
+                targ = fits.getdata(targ_path)
+                diff_img = targ - ref
+                plt.figure(figsize=(6, 5))
+                im = plt.imshow(diff_img, origin="lower", cmap="seismic")
+                plt.colorbar(im, label="ADU")
+                plt.title(f"{cal} first vs pre")
+                plt.tight_layout()
+                plt.savefig(os.path.join(outdir, f"{cal.lower()}_first_vs_pre.png"))
+                plt.close()
         if not dmax.empty and not p_post.empty:
             diff = float(p_post["MEAN"].mean() - dmax["MEAN"].mean())
             rows.append({"CALTYPE": cal, "CMP": "post_vs_last", "DIFF": diff})
 
+            # Heatmap of post minus last during
+            ref_row = dmax.iloc[0]
+            targ_row = p_post.iloc[0]
+            ref_path = _master_path(cal, "during", ref_row["DOSE"], ref_row["EXPTIME"], master_dir)
+            targ_path = _master_path(cal, "post", targ_row["DOSE"], targ_row["EXPTIME"], master_dir)
+            if os.path.isfile(ref_path) and os.path.isfile(targ_path):
+                ref = fits.getdata(ref_path)
+                targ = fits.getdata(targ_path)
+                diff_img = targ - ref
+                plt.figure(figsize=(6, 5))
+                im = plt.imshow(diff_img, origin="lower", cmap="seismic")
+                plt.colorbar(im, label="ADU")
+                plt.title(f"{cal} post vs last")
+                plt.tight_layout()
+                plt.savefig(os.path.join(outdir, f"{cal.lower()}_post_vs_last.png"))
+                plt.close()
+
     if rows:
-        os.makedirs(outdir, exist_ok=True)
         pd.DataFrame(rows).to_csv(os.path.join(outdir, "stage_differences.csv"), index=False)
 
 
@@ -542,7 +582,7 @@ def main(index_csv: str, output_dir: str) -> None:
     _save_plot(summary, os.path.join(output_dir, "plots"))
 
     pix_df = _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
-    _compare_stage_differences(summary, os.path.join(output_dir, "analysis"))
+    _compare_stage_differences(summary, master_dir, os.path.join(output_dir, "analysis"))
     _fit_dose_response(summary, os.path.join(output_dir, "analysis"))
 
     precision_df = _compute_photometric_precision(summary)
