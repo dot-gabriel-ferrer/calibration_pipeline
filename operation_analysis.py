@@ -251,8 +251,18 @@ def _plot_intensity_stats(
     m = np.array(means, dtype=float)
     s = np.array(stds, dtype=float)
 
-    mean_fit = np.polyfit(t, m, 1) if len(t) > 1 else (0.0, m[0])
-    std_fit = np.polyfit(t, s, 1) if len(t) > 1 else (0.0, s[0])
+    if len(t) > 1:
+        try:
+            mean_fit = np.polyfit(t, m, 1)
+        except np.linalg.LinAlgError:
+            mean_fit = (0.0, float(np.mean(m)))
+        try:
+            std_fit = np.polyfit(t, s, 1)
+        except np.linalg.LinAlgError:
+            std_fit = (0.0, float(np.mean(s)))
+    else:
+        mean_fit = (0.0, float(np.mean(m)))
+        std_fit = (0.0, float(np.mean(s)))
     trend_t = np.array([t[0], t[-1]])
 
     plt.figure(figsize=(8, 4))

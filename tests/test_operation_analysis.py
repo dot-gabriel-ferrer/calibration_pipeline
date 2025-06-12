@@ -1,8 +1,10 @@
 import numpy as np
 from astropy.io import fits
 
+
 import pandas as pd
 from operation_analysis import _load_frames, main, _plot_rad_vs_outliers
+
 import os
 
 
@@ -57,3 +59,4 @@ def test_plot_rad_vs_outliers_handles_failed_polyfit(monkeypatch, tmp_path):
     _plot_rad_vs_outliers(rad_df, frame_times, outlier_counts, str(outpath))
 
     assert outpath.is_file()
+
