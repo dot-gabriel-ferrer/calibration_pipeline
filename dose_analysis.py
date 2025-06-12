@@ -375,8 +375,8 @@ def _pixel_precision_analysis(
 
         fig, ax = plt.subplots(figsize=(6, 5))
         im = ax.imshow(mag_norm, origin="lower", cmap="magma")
-        cbar = plt.colorbar(im, ax=ax, label="Magnitude error [mag]")
-        cbar.ax.text(1.05, 0.5, f"mean={mag_err_mean:.2f}", transform=cbar.ax.transAxes, va="center")
+        cbar = plt.colorbar(im, ax=ax, label="Magnitude error [mag]"+f" mean={mag_err_mean:.2f}")
+        #cbar.ax.text(1.05, 0.5, f"mean={mag_err_mean:.2f}", transform=cbar.ax.transAxes, va="center")
         ax.set_title(f"Magnitude error {tag}")
         fig.tight_layout()
         fig.savefig(os.path.join(outdir, f"mag_err_{tag}.png"), dpi=300)
@@ -384,8 +384,8 @@ def _pixel_precision_analysis(
 
         fig, ax = plt.subplots(figsize=(6, 5))
         im = ax.imshow(adu16_norm, origin="lower", cmap="viridis")
-        cbar = plt.colorbar(im, ax=ax, label="ADU error (16 bit)")
-        cbar.ax.text(1.05, 0.5, f"mean={adu_err16_mean:.2f}", transform=cbar.ax.transAxes, va="center")
+        cbar = plt.colorbar(im, ax=ax, label="ADU error (16 bit)"+f" mean={adu_err16_mean:.2f}")
+        #cbar.ax.text(1.05, 0.5, f"mean={adu_err16_mean:.2f}", transform=cbar.ax.transAxes, va="center")
         ax.set_title(f"ADU error 16-bit {tag}")
         fig.tight_layout()
         fig.savefig(os.path.join(outdir, f"adu_err16_{tag}.png"), dpi=300)
@@ -393,7 +393,7 @@ def _pixel_precision_analysis(
 
         fig, ax = plt.subplots(figsize=(6, 5))
         im = ax.imshow(adu12_norm, origin="lower", cmap="viridis")
-        cbar = plt.colorbar(im, ax=ax, label="ADU error (12 bit)")
+        cbar = plt.colorbar(im, ax=ax, label="ADU error (12 bit)"+f" mean={adu_err12_mean:.2f}")
         cbar.ax.text(1.05, 0.5, f"mean={adu_err12_mean:.2f}", transform=cbar.ax.transAxes, va="center")
         ax.set_title(f"ADU error 12-bit {tag}")
         fig.tight_layout()
@@ -500,7 +500,7 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                 targ = fits.getdata(targ_path)
                 diff_img = targ - ref
                 plt.figure(figsize=(6, 5))
-                im = plt.imshow(diff_img, origin="lower", cmap="seismic")
+                im = plt.imshow(diff_img, origin="lower", cmap="magma")
                 plt.colorbar(im, label="ADU")
                 plt.title(f"{cal} first vs pre")
                 plt.tight_layout()
@@ -520,7 +520,7 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                 targ = fits.getdata(targ_path)
                 diff_img = targ - ref
                 plt.figure(figsize=(6, 5))
-                im = plt.imshow(diff_img, origin="lower", cmap="seismic")
+                im = plt.imshow(diff_img, origin="lower", cmap="magma")
                 plt.colorbar(im, label="ADU")
                 plt.title(f"{cal} post vs last")
                 plt.tight_layout()
