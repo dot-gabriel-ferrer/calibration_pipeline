@@ -170,3 +170,19 @@ The script writes an ``index.csv`` file in the dataset root and fills the
 given output directory with the generated masters, the
 ``frame_stats.csv`` summary and all plots and comparisons described in the
 previous section.
+
+## Irradiation workflow
+
+For radiation campaigns, `run_radiation.py` automates FITS conversion,
+dataset indexing and the analysis performed by `radiation_analysis.py`.
+It expects the same directory structure used by `run_calibration.py`
+with `Preirradiation`, `Irradiation` and `Postirradiation` folders and a
+`radiationLogCompleto.csv` file.
+
+```bash
+python run_radiation.py path/to/irrad_dataset path/to/radiationLogCompleto.csv output_dir/
+```
+
+Select specific stages with `--stages pre during post` (defaults to all).
+The script writes `index.csv` in the dataset root and places all analysis
+outputs inside the chosen output directory.
