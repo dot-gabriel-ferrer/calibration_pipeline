@@ -82,6 +82,37 @@ def _process_fits(path: str, caltype: str, stage: Optional[str], vacuum: Optiona
     }
 
 
+def discover_sections(base: str, depth: int) -> tuple[list[str], list[str], list[str]]:
+    """Return directories matching bias, dark and flat sections within ``base``.
+
+    The search is limited to ``depth`` levels using :func:`os.walk`.
+    """
+
+    bias_sections: list[str] = []
+    dark_sections: list[str] = []
+    flat_sections: list[str] = []
+
+    base = os.path.abspath(base)
+    base_depth = base.rstrip(os.sep).count(os.sep)
+
+    for dirpath, dirnames, _ in os.walk(base):
+        rel_depth = dirpath.rstrip(os.sep).count(os.sep) - base_depth
+        if rel_depth > depth:
+            # prune search tree beyond desired depth
+            dirnames[:] = []
+            continue
+
+        name = os.path.basename(dirpath).lower()
+        if "bias" in name:
+            bias_sections.append(dirpath)
+        elif "dark" in name:
+            dark_sections.append(dirpath)
+        elif "flat" in name:
+            flat_sections.append(dirpath)
+
+    return bias_sections, dark_sections, flat_sections
+
+
 def index_sections(
     bias_root: Union[str, Sequence[str]],
     dark_root: Union[str, Sequence[str]],
@@ -157,6 +188,12 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
         action="append",
         help="Path to TestSection3 (FLAT). Can be used multiple times",
     )
+    parser.add_argument(
+        "--discover",
+        dest="discover_roots",
+        action="append",
+        help="Dataset root to search for Bias/Darks/Flats directories. Can be used multiple times",
+    )
     parser.add_argument("output_csv", help="Output CSV path")
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     parser.add_argument("--stage", choices=["pre", "during", "post"], help="Radiation stage")
@@ -174,6 +211,13 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
     bias_sections = args.bias_sections or []
     dark_sections = args.dark_sections or []
     flat_sections = args.flat_sections or []
+
+    if args.discover_roots:
+        for root in args.discover_roots:
+            b, d, f = discover_sections(root, args.search_depth)
+            bias_sections.extend(b)
+            dark_sections.extend(d)
+            flat_sections.extend(f)
 
     if args.positional:
         if len(args.positional) >= 3:

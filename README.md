@@ -142,6 +142,15 @@ python -m utils.index_dataset \
     index.csv
 ```
 
+You may also let the script discover the calibration folders automatically by
+passing the dataset root with `--discover`. It searches for `Bias`, `Darks` and
+`Flats` directories (case insensitive) up to the configured `--search-depth` and
+assigns the corresponding `CALTYPE` automatically.
+
+```bash
+python -m utils.index_dataset --discover path/to/dataset index.csv
+```
+
 The resulting CSV contains the following columns:
 `PATH`, `CALTYPE`, `STAGE`, `VACUUM`, `TEMP`, `ZEROFRACTION` and `BADFITS`.
 Each row corresponds to a FITS file and the script tags files with

@@ -5,7 +5,7 @@ import pytest
 from astropy.io import fits
 
 
-from utils.index_dataset import index_sections, _infer_stage
+from utils.index_dataset import index_sections, _infer_stage, main
 
 
 
@@ -73,6 +73,31 @@ def _setup_dataset(root, suffix=""):
     _make_fits(dark / f"d{suffix}.fits", np.ones((1, 1)), temp=0)
     _make_fits(flat / f"f{suffix}.fits", np.ones((1, 1)), temp=0)
     return bias.parent.parent, dark.parent.parent, flat.parent.parent
+
+
+def test_discover_sections_cli(tmp_path):
+    dataset_root = tmp_path / "dataset"
+    bias = dataset_root / "Bias" / "T0" / "attempt0" / "fits"
+    dark = dataset_root / "Darks" / "T0" / "attempt0" / "fits"
+    flat = dataset_root / "Flats" / "T0" / "attempt0" / "fits"
+
+    for d in (bias, dark, flat):
+        d.mkdir(parents=True)
+
+    _make_fits(bias / "b.fits", np.ones((1, 1)), temp=0)
+    _make_fits(dark / "d.fits", np.ones((1, 1)), temp=0)
+    _make_fits(flat / "f.fits", np.ones((1, 1)), temp=0)
+
+    csv_path = tmp_path / "index.csv"
+    main(["--discover", str(dataset_root), str(csv_path), "--search-depth", "2"])
+
+    with open(csv_path) as f:
+        rows = list(csv.DictReader(f))
+
+    assert {row["CALTYPE"] for row in rows} == {"BIAS", "DARK", "FLAT"}
+    bias_rows = [row for row in rows if row["CALTYPE"] == "BIAS"]
+    assert len(bias_rows) == 1
+    assert "Bias" in bias_rows[0]["PATH"]
 
 
 def test_multiple_dataset_lists(tmp_path):
