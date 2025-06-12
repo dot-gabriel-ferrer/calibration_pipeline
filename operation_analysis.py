@@ -340,9 +340,28 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
 
 
 
-def main(input_dir: str = "Operation", output_dir: str = "operation_results") -> None:
+def main(
+    input_dir: str = "Operation",
+    output_dir: str = "operation_results",
+    datasets: Optional[list[str]] = None,
+) -> None:
+    """Analyze one or more operation datasets.
+
+    Parameters
+    ----------
+    input_dir : str, optional
+        Directory containing the dataset sub-directories.
+    output_dir : str, optional
+        Destination directory for the analysis results.
+    datasets : list[str] or None, optional
+        Specific dataset sub-directories to process.  When ``None`` (default)
+        all ``*kRads`` folders inside ``input_dir`` are analyzed.
+    """
+
     os.makedirs(output_dir, exist_ok=True)
     entries = sorted(os.listdir(input_dir))
+    if datasets:
+        entries = [e for e in entries if e in datasets]
     for entry in tqdm(entries, desc="Directories", unit="dir"):
         dpath = os.path.join(input_dir, entry)
         if os.path.isdir(dpath) and _parse_rads(entry) is not None:
@@ -365,5 +384,14 @@ if __name__ == "__main__":
         default="operation_results",
         help="Directory where analysis outputs will be written",
     )
+    parser.add_argument(
+        "--datasets",
+        nargs="*",
+        default=None,
+        help=(
+            "Names of subdirectories inside input_dir to analyze. If omitted, "
+            "all <x>kRads folders are processed."
+        ),
+    )
     args = parser.parse_args()
-    main(args.input_dir, args.output_dir)
+    main(args.input_dir, args.output_dir, args.datasets)
