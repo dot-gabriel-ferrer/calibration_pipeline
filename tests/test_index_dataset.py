@@ -1,8 +1,10 @@
 import csv
+import os
 import numpy as np
+import pytest
 from astropy.io import fits
 
-from utils.index_dataset import index_sections
+from utils.index_dataset import index_sections, _infer_vacuum
 
 
 def _make_fits(path, data, temp=None):
@@ -90,4 +92,20 @@ def test_multiple_dataset_lists(tmp_path):
         rows = list(csv.DictReader(f))
 
     assert len(rows) == 6  # two datasets with one file per caltype
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("vacuum", "vacuum"),
+        ("novac", "air"),
+        ("no_vac", "air"),
+        (os.path.join("vacuum", "no_vac"), "air"),
+        (os.path.join("novac", "vac"), "vacuum"),
+        ("tests_duringradiation_novacuum", "air"),
+    ],
+)
+def test_infer_vacuum(path, expected):
+    """Verify vacuum inference from path tokens."""
+    assert _infer_vacuum(path) == expected
 
