@@ -10,6 +10,7 @@ from dose_analysis import (
     _plot_photometric_precision,
     _save_plot,
     _pixel_precision_analysis,
+    _compare_stage_differences,
 )
 
 
@@ -124,4 +125,29 @@ def test_pixel_precision_analysis_generates_maps(tmp_path):
     assert (out_dir / 'mag_err_1kR.png').is_file()
     assert (out_dir / 'adu_err16_1kR.png').is_file()
     assert (out_dir / 'adu_err12_1kR.png').is_file()
+
+
+def test_compare_stage_differences_generates_heatmaps(tmp_path):
+    master_dir = tmp_path / 'masters'
+    master_dir.mkdir()
+
+    # create minimal masters
+    _make_fits(master_dir / 'master_bias_pre_D1kR_E1.0.fits', 1)
+    _make_fits(master_dir / 'master_bias_during_D1kR_E1.0.fits', 2)
+    _make_fits(master_dir / 'master_bias_during_D2kR_E1.0.fits', 3)
+    _make_fits(master_dir / 'master_bias_post_D2kR_E1.0.fits', 4)
+
+    summary = pd.DataFrame([
+        {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
+        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.1},
+        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 3.0, "STD": 0.1},
+        {"STAGE": "post", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 4.0, "STD": 0.1},
+    ])
+
+    out_dir = tmp_path / 'out'
+    _compare_stage_differences(summary, str(out_dir), str(master_dir))
+
+    assert (out_dir / 'stage_differences.csv').is_file()
+    assert (out_dir / 'bias_first_vs_pre.png').is_file()
+    assert (out_dir / 'bias_post_vs_last.png').is_file()
 

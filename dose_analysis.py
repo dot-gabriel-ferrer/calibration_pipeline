@@ -368,8 +368,12 @@ def _pixel_precision_analysis(groups: Dict[Tuple[str, str, float, float | None],
     plt.close(fig_a)
 
 
-def _compare_stage_differences(summary: pd.DataFrame, outdir: str) -> None:
-    """Store differences between initial/last irradiation values and pre/post."""
+def _compare_stage_differences(summary: pd.DataFrame, outdir: str, master_dir: str) -> None:
+    """Store differences between initial/last irradiation values and pre/post.
+
+    In addition to the CSV table, generate heatmaps of the pixel-wise
+    differences between the compared master frames.
+    """
     df = summary
     during = df[df["STAGE"] == "during"]
     pre = df[df["STAGE"] == "pre"]
@@ -379,21 +383,59 @@ def _compare_stage_differences(summary: pd.DataFrame, outdir: str) -> None:
     min_dose = during["DOSE"].min()
     max_dose = during["DOSE"].max()
 
+    def _master_path(row: pd.Series) -> str:
+        exp = row["EXPTIME"]
+        if pd.isna(exp):
+            exp = None
+        name = f"master_{row['CALTYPE'].lower()}_{row['STAGE']}_D{row['DOSE']:g}kR_E{exp if exp is not None else 'none'}"
+        return os.path.join(master_dir, name + ".fits")
+
     rows = []
+    os.makedirs(outdir, exist_ok=True)
+
     for cal in ("BIAS", "DARK"):
         dmin = during[(during["CALTYPE"] == cal) & (during["DOSE"] == min_dose)]
         dmax = during[(during["CALTYPE"] == cal) & (during["DOSE"] == max_dose)]
         p_pre = pre[pre["CALTYPE"] == cal]
         p_post = post[post["CALTYPE"] == cal]
+
         if not dmin.empty and not p_pre.empty:
-            diff = float(dmin["MEAN"].mean() - p_pre["MEAN"].mean())
-            rows.append({"CALTYPE": cal, "CMP": "first_vs_pre", "DIFF": diff})
+            diff_val = float(dmin["MEAN"].mean() - p_pre["MEAN"].mean())
+            rows.append({"CALTYPE": cal, "CMP": "first_vs_pre", "DIFF": diff_val})
+
+            try:
+                target = fits.getdata(_master_path(dmin.iloc[0])).astype(np.float32)
+                ref = fits.getdata(_master_path(p_pre.iloc[0])).astype(np.float32)
+                diff = target - ref
+                plt.figure(figsize=(6, 5))
+                im = plt.imshow(diff, origin="lower", cmap="RdBu")
+                plt.colorbar(im)
+                plt.title(f"{cal} first_vs_pre")
+                plt.tight_layout()
+                plt.savefig(os.path.join(outdir, f"{cal.lower()}_first_vs_pre.png"))
+                plt.close()
+            except Exception:
+                pass
+
         if not dmax.empty and not p_post.empty:
-            diff = float(p_post["MEAN"].mean() - dmax["MEAN"].mean())
-            rows.append({"CALTYPE": cal, "CMP": "post_vs_last", "DIFF": diff})
+            diff_val = float(p_post["MEAN"].mean() - dmax["MEAN"].mean())
+            rows.append({"CALTYPE": cal, "CMP": "post_vs_last", "DIFF": diff_val})
+
+            try:
+                target = fits.getdata(_master_path(p_post.iloc[0])).astype(np.float32)
+                ref = fits.getdata(_master_path(dmax.iloc[0])).astype(np.float32)
+                diff = target - ref
+                plt.figure(figsize=(6, 5))
+                im = plt.imshow(diff, origin="lower", cmap="RdBu")
+                plt.colorbar(im)
+                plt.title(f"{cal} post_vs_last")
+                plt.tight_layout()
+                plt.savefig(os.path.join(outdir, f"{cal.lower()}_post_vs_last.png"))
+                plt.close()
+            except Exception:
+                pass
 
     if rows:
-        os.makedirs(outdir, exist_ok=True)
         pd.DataFrame(rows).to_csv(os.path.join(outdir, "stage_differences.csv"), index=False)
 
 
@@ -452,7 +494,7 @@ def main(index_csv: str, output_dir: str) -> None:
     _save_plot(summary, os.path.join(output_dir, "plots"))
 
     _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
-    _compare_stage_differences(summary, os.path.join(output_dir, "analysis"))
+    _compare_stage_differences(summary, os.path.join(output_dir, "analysis"), master_dir)
     _fit_dose_response(summary, os.path.join(output_dir, "analysis"))
 
     precision_df = _compute_photometric_precision(summary)
