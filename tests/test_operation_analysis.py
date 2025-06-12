@@ -1,7 +1,10 @@
 import numpy as np
 from astropy.io import fits
 
-from operation_analysis import _load_frames, main, _plot_intensity_stats
+
+import pandas as pd
+from operation_analysis import _load_frames, main, _plot_rad_vs_outliers
+
 import os
 
 
@@ -42,18 +45,18 @@ def test_main_dataset_filter(monkeypatch, tmp_path):
     assert called == ["20kRads"]
 
 
-def test_plot_intensity_stats_polyfit_failure(monkeypatch, tmp_path):
-    out = tmp_path / "plot.png"
+def test_plot_rad_vs_outliers_handles_failed_polyfit(monkeypatch, tmp_path):
+    rad_df = pd.DataFrame({"TimeStamp": [0, 1], "Dose": [0, 1]})
+    frame_times = [0, 1]
+    outlier_counts = [1, 2]
+    outpath = tmp_path / "plot.png"
 
-    means = [1.0, 2.0, 3.0]
-    stds = [0.1, 0.2, 0.3]
-    times = [0.0, 1.0, 2.0]
+    def raise_linalg_err(*args, **kwargs):
+        raise np.linalg.LinAlgError
 
-    def raise_linalg(*args, **kwargs):
-        raise np.linalg.LinAlgError("fail")
+    monkeypatch.setattr(np, "polyfit", raise_linalg_err)
 
-    monkeypatch.setattr(np, "polyfit", raise_linalg)
+    _plot_rad_vs_outliers(rad_df, frame_times, outlier_counts, str(outpath))
 
-    _plot_intensity_stats(means, stds, times, str(out))
+    assert outpath.is_file()
 
-    assert out.exists()

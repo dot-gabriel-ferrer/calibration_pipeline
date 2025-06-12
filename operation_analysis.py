@@ -284,12 +284,18 @@ def _plot_rad_vs_outliers(
     outlier_counts: list[int],
     outpath: str,
 ) -> None:
-    """Plot radiation dose/level versus outlier count and save the figure."""
+    """Plot radiation dose/level versus outlier count and save the figure.
+
+    The linear trend line uses :func:`numpy.polyfit` but falls back to a
+    constant line if the fit cannot be computed (e.g. for singular inputs).
+    """
     if rad_df.empty or not frame_times:
         return
 
     # radiation measurement (commanded dose or sensor level)
-    rad = _get_column(rad_df, ["Dose"]) or _get_column(rad_df, ["RadiationLevel"])
+    rad = _get_column(rad_df, ["Dose"])
+    if rad is None:
+        rad = _get_column(rad_df, ["RadiationLevel"])
     if rad is None:
         return
 
@@ -311,8 +317,19 @@ def _plot_rad_vs_outliers(
 
     rad_values = np.interp(frame_times, rad_time, rad)
 
-    corr = np.corrcoef(rad_values, outlier_counts)[0, 1] if len(frame_times) > 1 else np.nan
-    fit = np.polyfit(rad_values, outlier_counts, 1) if len(frame_times) > 1 else (0.0, outlier_counts[0])
+    corr = (
+        np.corrcoef(rad_values, outlier_counts)[0, 1]
+        if len(frame_times) > 1
+        else np.nan
+    )
+    # polyfit can fail for perfectly correlated or constant data; handle gracefully
+    if len(frame_times) > 1:
+        try:
+            fit = np.polyfit(rad_values, outlier_counts, 1)
+        except np.linalg.LinAlgError:
+            fit = np.array([0.0, float(np.mean(outlier_counts))])
+    else:
+        fit = (0.0, outlier_counts[0])
     line_x = np.array([rad_values.min(), rad_values.max()])
     line_y = fit[0] * line_x + fit[1]
 

@@ -22,7 +22,9 @@ The repository also includes a couple of standalone scripts useful for data expl
   pixels and generates summary plots. See the script for additional options.
 - **`operation_analysis.py`** – analyses radiation exposure sequences. It now
   correlates radiation logs with per-frame outlier counts and produces
-  `rad_vs_outliers.png` for basic sensor behaviour assessment.
+  `rad_vs_outliers.png` for basic sensor behaviour assessment. The
+  linear fit on this plot now gracefully falls back to a constant line
+  if a polynomial fit cannot be computed.
 
 ## Installation
 
