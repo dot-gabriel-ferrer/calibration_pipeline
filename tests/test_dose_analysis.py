@@ -139,6 +139,8 @@ def test_fit_dose_response_outputs(tmp_path, monkeypatch):
         {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.1},
         {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 0.1},
         {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 12.0, "STD": 0.1},
+        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 2.0, "MEAN": 20.0, "STD": 0.1},
+        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 2.0, "MEAN": 24.0, "STD": 0.1},
     ])
 
     saved = []
@@ -151,7 +153,11 @@ def test_fit_dose_response_outputs(tmp_path, monkeypatch):
     _fit_dose_response(summary, tmp_path)
 
     assert (tmp_path / "dose_model.csv").exists()
-    assert sorted(saved) == ["dose_model_bias.png", "dose_model_dark.png"]
+    assert sorted(saved) == [
+        "dose_model_bias.png",
+        "dose_model_dark_E1p0s.png",
+        "dose_model_dark_E2p0s.png",
+    ]
 
 
 def test_compare_stage_differences_generates_heatmaps(tmp_path):
