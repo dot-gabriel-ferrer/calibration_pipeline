@@ -119,14 +119,26 @@ For more options refer to the READMEs within each submodule.
 The `utils.index_dataset` module scans the converted FITS files and creates a CSV
 summary. Provide the paths to the dataset sections and the output CSV location.
 The `--bias`, `--dark` and `--flat` options may be specified multiple times to
-index several datasets at once.  If `--stage` or `--vacuum` are omitted they are
-automatically inferred from the directory names.
+index several datasets at once.  Each of these options **must** point directly to
+the corresponding ``Bias``/``Darks``/``Flats`` directory (e.g. ``TestSection1``,
+``TestSection2`` and ``TestSection3``).
+Supplying a higher-level dataset root will cause dark or flat frames to be
+indexed unintentionally under the bias section. If `--stage` or `--vacuum` are
+omitted they are automatically inferred from the directory names.
+
+Incorrect usage (pointing ``--bias`` to the dataset root):
+
+```bash
+python -m utils.index_dataset --bias path/to/dataset index.csv
+```
+
+Correct usage (pointing to the calibration directories):
 
 ```bash
 python -m utils.index_dataset \
-    --bias path/to/ds1/TestSection1 --bias path/to/ds2/TestSection1 \
-    --dark path/to/TestSection2 \
-    --flat path/to/TestSection3 \
+    --bias path/to/dataset/Bias \
+    --dark path/to/dataset/Darks \
+    --flat path/to/dataset/Flats \
     index.csv
 ```
 
