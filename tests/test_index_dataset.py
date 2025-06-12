@@ -2,7 +2,7 @@ import csv
 import numpy as np
 from astropy.io import fits
 
-from utils.index_dataset import index_sections
+from utils.index_dataset import index_sections, _infer_stage
 
 
 def _make_fits(path, data, temp=None):
@@ -90,4 +90,29 @@ def test_multiple_dataset_lists(tmp_path):
         rows = list(csv.DictReader(f))
 
     assert len(rows) == 6  # two datasets with one file per caltype
+
+
+def test_infer_stage_prefers_deepest_pre(tmp_path):
+    path = tmp_path / "tests_duringradiation_novacuum" / "PreIrradiation" / "Bias"
+    assert _infer_stage(str(path)) == "pre"
+
+
+def test_infer_stage_post_directory(tmp_path):
+    path = (
+        tmp_path
+        / "tests_duringradiation_novacuum"
+        / "PostIrradiation"
+        / "Bias"
+    )
+    assert _infer_stage(str(path)) == "post"
+
+
+def test_infer_stage_during_directory(tmp_path):
+    path = (
+        tmp_path
+        / "tests_duringradiation_novacuum"
+        / "DuringIrradiation"
+        / "Bias"
+    )
+    assert _infer_stage(str(path)) == "during"
 
