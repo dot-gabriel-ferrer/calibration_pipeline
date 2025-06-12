@@ -509,13 +509,14 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                     label = f"% change (base={base_val:.2f} ADU)"
                 else:
                     label = "ADU"
-                vmax = np.nanmax(np.abs(diff_img))
+                vmin = float(np.nanmin(diff_img))
+                vmax = float(np.nanmax(diff_img))
                 plt.figure(figsize=(6, 5))
                 im = plt.imshow(
                     diff_img,
                     origin="lower",
                     cmap="coolwarm",
-                    vmin=-vmax,
+                    vmin=vmin,
                     vmax=vmax,
                 )
                 plt.colorbar(im, label=label)
@@ -542,13 +543,14 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                     label = f"% change (base={base_val:.2f} ADU)"
                 else:
                     label = "ADU"
-                vmax = np.nanmax(np.abs(diff_img))
+                vmin = float(np.nanmin(diff_img))
+                vmax = float(np.nanmax(diff_img))
                 plt.figure(figsize=(6, 5))
                 im = plt.imshow(
                     diff_img,
                     origin="lower",
                     cmap="coolwarm",
-                    vmin=-vmax,
+                    vmin=vmin,
                     vmax=vmax,
                 )
                 plt.colorbar(im, label=label)
