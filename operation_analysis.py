@@ -125,12 +125,24 @@ def _plot_logs(
     time = _get_column(rad_df, ["TimeStamp", "Timestamp", "Time"])
     if time is None:
         time = _get_column(power_df, ["TimeStamp", "Timestamp", "Time", "TimeStampPwr"])
-    rad = _get_column(rad_df, ["RadiationLevel", "Dose"])
+    if time is not None:
+        time = pd.to_numeric(time, errors="coerce")
+        time = time - float(time.iloc[0])
+
+    rad = _get_column(rad_df, ["Dose"])  # commanded level
+    rad_level = _get_column(rad_df, ["RadiationLevel"])
     temp = _get_column(rad_df, ["Temp", "Temperature"])
     amp = _get_column(power_df, ["Amperage", "Current"])
     volt = _get_column(power_df, ["Voltage"])
 
-    rows = 4 + (1 if outlier_counts is not None and frame_times is not None else 0)
+    rows = sum(
+        x is not None
+        for x in (rad, rad_level, temp, amp, volt)
+    )
+    if outlier_counts is not None and frame_times is not None:
+        rows += 1
+    if rows == 0:
+        return
     plt.figure(figsize=(8, 1.5 * rows))
     idx = 1
 
@@ -139,28 +151,30 @@ def _plot_logs(
 
         plt.plot(time, rad)
         plt.ylabel("Radiation")
-        plotted = True
+        idx += 1
+
+    if rad_level is not None:
+        plt.subplot(rows, 1, idx)
+        plt.plot(time, rad_level)
+        plt.ylabel("Sensor Rad")
         idx += 1
 
     if temp is not None:
         plt.subplot(rows, 1, idx)
         plt.plot(time, temp)
         plt.ylabel("Temperature")
-        plotted = True
         idx += 1
 
     if amp is not None:
         plt.subplot(rows, 1, idx)
         plt.plot(time, amp)
         plt.ylabel("Amperage")
-        plotted = True
         idx += 1
 
     if volt is not None:
         plt.subplot(rows, 1, idx)
         plt.plot(time, volt)
         plt.ylabel("Voltage")
-        plotted = True
         idx += 1
 
     if outlier_counts is not None and frame_times is not None:
