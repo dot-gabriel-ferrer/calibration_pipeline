@@ -23,6 +23,7 @@ import argparse
 import os
 import re
 from collections import defaultdict
+from itertools import combinations
 from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
@@ -232,19 +233,23 @@ def main(index_csv: str, radiation_log: str, output_dir: str, stages: Iterable[s
         out = os.path.join(output_dir, stage)
         analyse_stage(df, radiation_log, out, stage)
 
-    # If both pre and during stages exist, generate difference heatmaps
-    pre_dir = os.path.join(output_dir, "pre")
-    during_dir = os.path.join(output_dir, "during")
-    if os.path.isdir(pre_dir) and os.path.isdir(during_dir):
-        for fname in os.listdir(pre_dir):
-            if not fname.startswith("master_bias"):
+    # Generate difference heatmaps between all available stage pairs
+    stage_dirs = {s: os.path.join(output_dir, s) for s in stages}
+    for s1, s2 in combinations(stages, 2):
+        dir1, dir2 = stage_dirs[s1], stage_dirs[s2]
+        if not (os.path.isdir(dir1) and os.path.isdir(dir2)):
+            continue
+        for fname in os.listdir(dir1):
+            if not (fname.startswith("master_bias") or fname.startswith("master_dark")):
                 continue
-            ref = fits.getdata(os.path.join(pre_dir, fname))
-            targ_path = os.path.join(during_dir, fname)
+            ref_path = os.path.join(dir1, fname)
+            targ_path = os.path.join(dir2, fname)
             if os.path.isfile(targ_path):
+                ref = fits.getdata(ref_path)
                 targ = fits.getdata(targ_path)
-                outname = os.path.splitext(fname)[0] + "_diff.png"
-                diff_heatmap(ref, targ, os.path.join(output_dir, outname), f"Diff {fname}")
+                outname = f"{os.path.splitext(fname)[0]}_{s2}_minus_{s1}.png"
+                title = f"Diff {s2}-{s1} {fname}"
+                diff_heatmap(ref, targ, os.path.join(output_dir, outname), title)
 
 
 if __name__ == "__main__":
