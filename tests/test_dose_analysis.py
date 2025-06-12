@@ -120,11 +120,15 @@ def test_pixel_precision_analysis_generates_maps(tmp_path):
     }
 
     out_dir = tmp_path / 'out'
-    _pixel_precision_analysis(groups, str(out_dir))
+    stats = _pixel_precision_analysis(groups, str(out_dir))
 
     assert (out_dir / 'mag_err_1kR.png').is_file()
     assert (out_dir / 'adu_err16_1kR.png').is_file()
     assert (out_dir / 'adu_err12_1kR.png').is_file()
+    assert (out_dir / 'mag_err_vs_dose.png').is_file()
+    assert (out_dir / 'adu_err_vs_dose.png').is_file()
+    assert set(stats.columns) == {"DOSE", "MAG_MEAN", "MAG_STD", "ADU_MEAN", "ADU_STD"}
+    assert len(stats) == 1
 
 
 def test_fit_dose_response_outputs(tmp_path, monkeypatch):
