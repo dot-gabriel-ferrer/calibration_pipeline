@@ -469,7 +469,11 @@ def _master_path(cal: str, stage: str, dose: float, exp: float | None, master_di
 
 
 def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: str) -> None:
-    """Store differences between initial/last irradiation values and pre/post."""
+    """Store differences between initial/last irradiation values and pre/post.
+
+    Heatmaps now display the percentage change relative to the reference mean
+    value with a symmetric colour scale.
+    """
     df = summary
     during = df[df["STAGE"] == "during"]
     pre = df[df["STAGE"] == "pre"]
@@ -499,9 +503,22 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                 ref = fits.getdata(ref_path)
                 targ = fits.getdata(targ_path)
                 diff_img = targ - ref
+                base_val = float(ref_row["MEAN"])
+                if base_val:
+                    diff_img = (diff_img / base_val) * 100.0
+                    label = f"% change (base={base_val:.2f} ADU)"
+                else:
+                    label = "ADU"
+                vmax = np.nanmax(np.abs(diff_img))
                 plt.figure(figsize=(6, 5))
-                im = plt.imshow(diff_img, origin="lower", cmap="magma")
-                plt.colorbar(im, label="ADU")
+                im = plt.imshow(
+                    diff_img,
+                    origin="lower",
+                    cmap="coolwarm",
+                    vmin=-vmax,
+                    vmax=vmax,
+                )
+                plt.colorbar(im, label=label)
                 plt.title(f"{cal} first vs pre")
                 plt.tight_layout()
                 plt.savefig(os.path.join(outdir, f"{cal.lower()}_first_vs_pre.png"))
@@ -519,9 +536,22 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                 ref = fits.getdata(ref_path)
                 targ = fits.getdata(targ_path)
                 diff_img = targ - ref
+                base_val = float(ref_row["MEAN"])
+                if base_val:
+                    diff_img = (diff_img / base_val) * 100.0
+                    label = f"% change (base={base_val:.2f} ADU)"
+                else:
+                    label = "ADU"
+                vmax = np.nanmax(np.abs(diff_img))
                 plt.figure(figsize=(6, 5))
-                im = plt.imshow(diff_img, origin="lower", cmap="magma")
-                plt.colorbar(im, label="ADU")
+                im = plt.imshow(
+                    diff_img,
+                    origin="lower",
+                    cmap="coolwarm",
+                    vmin=-vmax,
+                    vmax=vmax,
+                )
+                plt.colorbar(im, label=label)
                 plt.title(f"{cal} post vs last")
                 plt.tight_layout()
                 plt.savefig(os.path.join(outdir, f"{cal.lower()}_post_vs_last.png"))
