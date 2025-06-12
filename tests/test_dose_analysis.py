@@ -8,6 +8,7 @@ from dose_analysis import (
     _group_paths,
     _make_master,
     _compute_photometric_precision,
+    _plot_photometric_precision,
     _save_plot,
     _fit_dose_response,
 )
@@ -83,6 +84,47 @@ def test_compute_photometric_precision():
     df = _compute_photometric_precision(summary)
     assert set(df['DOSE']) == {1.0, 2.0}
     assert df['MAG_ERR'].iloc[0] < df['MAG_ERR'].iloc[1]
+    assert "MAG_ERR_STD" in df.columns
+
+
+def test_plot_photometric_precision(monkeypatch, tmp_path):
+    df = pd.DataFrame({
+        "DOSE": [1.0, 2.0],
+        "MAG_ERR": [0.1, 0.2],
+        "MAG_ERR_STD": [0.01, 0.02],
+    })
+
+    yerrs = []
+
+    def fake_errorbar(self, x, y, yerr=None, fmt=None, **k):
+        yerrs.append(yerr)
+
+    monkeypatch.setattr("matplotlib.axes.Axes.errorbar", fake_errorbar)
+    monkeypatch.setattr("matplotlib.figure.Figure.savefig", lambda *a, **k: None)
+
+    _plot_photometric_precision(df, tmp_path)
+
+    assert len(yerrs) == 1
+    assert np.allclose(yerrs[0], df["MAG_ERR_STD"]) 
+
+
+def test_pixel_precision_analysis_generates_maps(tmp_path):
+    bias = tmp_path / 'b.fits'
+    dark = tmp_path / 'd.fits'
+    _make_fits(bias, 1000)
+    _make_fits(dark, 10)
+
+    groups = {
+        ('during', 'BIAS', 1.0, None): [str(bias)],
+        ('during', 'DARK', 1.0, None): [str(dark)],
+    }
+
+    out_dir = tmp_path / 'out'
+    _pixel_precision_analysis(groups, str(out_dir))
+
+    assert (out_dir / 'mag_err_1kR.png').is_file()
+    assert (out_dir / 'adu_err16_1kR.png').is_file()
+    assert (out_dir / 'adu_err12_1kR.png').is_file()
 
 
 def test_fit_dose_response_outputs(tmp_path, monkeypatch):
