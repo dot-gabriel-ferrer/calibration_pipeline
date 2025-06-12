@@ -58,11 +58,12 @@ def test_save_plot_all_stages(monkeypatch, tmp_path):
 
     labels = []
 
-    def fake_errorbar(x, y, yerr=None, fmt=None, label=None, **k):
+    def fake_errorbar(self, x, y, yerr=None, fmt=None, label=None, **k):
         labels.append(label)
 
-    monkeypatch.setattr('matplotlib.pyplot.errorbar', fake_errorbar)
-    monkeypatch.setattr('matplotlib.pyplot.savefig', lambda *a, **k: None)
+    monkeypatch.setattr('matplotlib.axes.Axes.errorbar', fake_errorbar)
+    monkeypatch.setattr('matplotlib.axes.Axes.fill_between', lambda *a, **k: None)
+    monkeypatch.setattr('matplotlib.figure.Figure.savefig', lambda *a, **k: None)
 
     _save_plot(summary, tmp_path)
 
