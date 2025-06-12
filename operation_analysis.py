@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
 from astropy.io import fits
 
-from utils.raw_to_fits import convert_attempt
+from utils.raw_to_fits import convert_attempt, parse_frame_number
 
 
 def _parse_rads(dirname: str) -> Optional[float]:
@@ -46,7 +46,39 @@ def _load_frames(attempt_dir: str) -> List[str]:
     fits_dir = os.path.join(attempt_dir, "fits")
     if not os.path.isdir(fits_dir) or not glob.glob(os.path.join(fits_dir, "*.fits")):
         convert_attempt(attempt_dir, calibration="OPER")
-    return sorted(glob.glob(os.path.join(fits_dir, "*.fits")))
+
+    paths = glob.glob(os.path.join(fits_dir, "*.fits"))
+
+    def sort_key(path: str) -> float:
+        num = parse_frame_number(os.path.basename(path))
+        hdr = None
+        if num is None:
+            try:
+                hdr = fits.getheader(path)
+            except Exception:
+                hdr = None
+            if hdr is not None:
+                try:
+                    num = int(hdr.get("FRAMENUM")) if hdr.get("FRAMENUM") is not None else None
+                except Exception:
+                    num = None
+        if num is not None:
+            return float(num)
+
+        if hdr is None:
+            try:
+                hdr = fits.getheader(path)
+            except Exception:
+                return float("inf")
+        ts = hdr.get("TIMESTAMP")
+        if ts is None:
+            ts = hdr.get("TIME")
+        try:
+            return float(ts)
+        except Exception:
+            return float("inf")
+
+    return sorted(paths, key=sort_key)
 
 
 def _read_frame(path: str) -> tuple[np.ndarray, fits.Header]:
