@@ -20,6 +20,9 @@ The repository also includes a couple of standalone scripts useful for data expl
 - **`dark_pipeline/steps/outgasing_destruction_analysis.py`** – analyses flats
   for long‑term detector degradation. It normalises frames, searches for outlier
   pixels and generates summary plots. See the script for additional options.
+- **`operation_analysis.py`** – analyses radiation exposure sequences. It now
+  correlates radiation logs with per-frame outlier counts and produces
+  `rad_vs_outliers.png` for basic sensor behaviour assessment.
 
 ## Installation
 

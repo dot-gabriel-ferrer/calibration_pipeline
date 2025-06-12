@@ -14,6 +14,13 @@ from astropy.io import fits
 
 from utils.raw_to_fits import convert_attempt, parse_frame_number
 
+"""Analyse radiation operation sequences.
+
+The script converts raw frames to FITS if necessary, detects per-frame outliers
+and correlates them with radiation logs.  Output figures include an overall
+metric plot, intensity trends and the new ``rad_vs_outliers.png`` which shows
+the relationship between radiation dose or level and detected outliers.
+"""
 
 def _parse_rads(dirname: str) -> Optional[float]:
     match = re.search(r"([0-9]+(?:\.[0-9]+)?)kRads", dirname)
@@ -261,6 +268,57 @@ def _plot_intensity_stats(
     plt.close()
 
 
+def _plot_rad_vs_outliers(
+    rad_df: pd.DataFrame,
+    frame_times: list[float],
+    outlier_counts: list[int],
+    outpath: str,
+) -> None:
+    """Plot radiation dose/level versus outlier count and save the figure."""
+    if rad_df.empty or not frame_times:
+        return
+
+    # radiation measurement (commanded dose or sensor level)
+    rad = _get_column(rad_df, ["Dose"]) or _get_column(rad_df, ["RadiationLevel"])
+    if rad is None:
+        return
+
+    time = _get_column(rad_df, ["TimeStamp", "Timestamp", "Time"])
+    if time is None:
+        return
+
+    rad = pd.to_numeric(rad, errors="coerce")
+    time = pd.to_numeric(time, errors="coerce")
+    rad_time = time - float(time.iloc[0])
+
+    # drop NaNs before interpolation
+    valid = ~(rad.isna() | rad_time.isna())
+    rad_time = rad_time[valid]
+    rad = rad[valid]
+
+    if rad.empty:
+        return
+
+    rad_values = np.interp(frame_times, rad_time, rad)
+
+    corr = np.corrcoef(rad_values, outlier_counts)[0, 1] if len(frame_times) > 1 else np.nan
+    fit = np.polyfit(rad_values, outlier_counts, 1) if len(frame_times) > 1 else (0.0, outlier_counts[0])
+    line_x = np.array([rad_values.min(), rad_values.max()])
+    line_y = fit[0] * line_x + fit[1]
+
+    plt.figure()
+    plt.scatter(rad_values, outlier_counts, s=10, label="Frames")
+    plt.plot(line_x, line_y, "r--", label="Linear fit")
+    if not np.isnan(corr):
+        plt.title(f"Correlation r={corr:.2f}")
+    plt.xlabel("Radiation")
+    plt.ylabel("Outlier Count")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(outpath)
+    plt.close()
+
+
 def analyze_directory(dir_path: str, output_dir: str) -> None:
     level = _parse_rads(os.path.basename(dir_path))
     if level is None:
@@ -316,6 +374,9 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
 
     plot_path = os.path.join(output_dir, "metrics.png")
     _plot_logs(rad_log, power_log, plot_path, times, outlier_counts)
+
+    rad_out_path = os.path.join(output_dir, "rad_vs_outliers.png")
+    _plot_rad_vs_outliers(rad_log, times, outlier_counts, rad_out_path)
 
     intens_path = os.path.join(output_dir, "intensity_stats.png")
     _plot_intensity_stats(means, stds, times, intens_path)
