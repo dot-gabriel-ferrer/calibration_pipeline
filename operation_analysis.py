@@ -246,6 +246,8 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
     if not data_list:
         return
 
+    mean_frame = np.mean(np.stack(data_list), axis=0)
+
     os.makedirs(output_dir, exist_ok=True)
 
     anim_path = os.path.join(output_dir, "frames.gif")
@@ -268,12 +270,16 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
     _plot_logs(rad_log, power_log, plot_path, times, outlier_counts)
 
     vmin, vmax = np.percentile(data_list[0], [5, 95])
-    plt.figure(figsize=(8, 4))
-    plt.subplot(1, 2, 1)
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 3, 1)
     plt.imshow(data_list[0], cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
     plt.title("First")
     plt.axis("off")
-    plt.subplot(1, 2, 2)
+    plt.subplot(1, 3, 2)
+    plt.imshow(mean_frame, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
+    plt.title("Mean")
+    plt.axis("off")
+    plt.subplot(1, 3, 3)
     plt.imshow(data_list[-1], cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
     plt.title("Last")
     plt.axis("off")
