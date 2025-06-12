@@ -56,6 +56,20 @@ def _read_frame(path: str) -> tuple[np.ndarray, fits.Header]:
     return data, header
 
 
+def _detect_outliers(frames: List[np.ndarray], sigma: float = 5) -> tuple[list[np.ndarray], np.ndarray]:
+    """Return per-frame boolean masks of outlier pixels and a cumulative mask."""
+    if not frames:
+        return [], np.array([])
+
+    stack = np.stack(frames)
+    mean = np.mean(stack, axis=0)
+    std = np.std(stack, axis=0)
+
+    masks = [np.abs(frame - mean) > sigma * std for frame in frames]
+    cumulative = np.any(np.stack(masks), axis=0)
+    return masks, cumulative
+
+
 def _make_animation(frames: List[np.ndarray], times: List[float], rads: float, outpath: str) -> None:
     fig, ax = plt.subplots()
     im = ax.imshow(frames[0], cmap="gray", origin="lower", animated=True)
@@ -77,26 +91,25 @@ def _make_animation(frames: List[np.ndarray], times: List[float], rads: float, o
     plt.close(fig)
 
 
-def _make_outlier_animation(frames: List[np.ndarray], times: List[float], outpath: str) -> None:
-    ref = frames[0]
-    diffs = [frame - ref for frame in frames]
-    std = np.std(diffs[0]) if diffs else 0.0
+def _make_outlier_animation(
+    frames: List[np.ndarray],
+    masks: List[np.ndarray],
+    times: List[float],
+    outpath: str,
+) -> None:
+    mean_frame = np.mean(np.stack(frames), axis=0)
+    diffs = [frame - mean_frame for frame in frames]
     fig, ax = plt.subplots()
     im = ax.imshow(diffs[0], cmap="seismic", origin="lower", animated=True)
     scatter = ax.scatter([], [], facecolors="none", edgecolors="yellow", s=10)
     text = ax.text(0.02, 1.05, "", transform=ax.transAxes, color="#006400")
 
-    def update(i):
-        diff = diffs[i]
-        im.set_array(diff)
-        cur_std = np.std(diff)
-        thresh = 5 * cur_std if cur_std > 0 else 0
-        mask = np.abs(diff) > thresh
-        coords = np.argwhere(mask)
+    def update(i: int):
+        im.set_array(diffs[i])
+        coords = np.argwhere(masks[i])
         if coords.size:
             scatter.set_offsets(coords[:, [1, 0]])
         else:
-            # scatter offsets expect an (N, 2) array; use shape (0, 2) when empty
             scatter.set_offsets(np.empty((0, 2)))
         text.set_text(f"t={times[i]:.1f}s")
         return [im, scatter, text]
@@ -219,18 +232,22 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
     anim_path = os.path.join(output_dir, "frames.gif")
     _make_animation(data_list, times, level, anim_path)
 
-    diff_anim_path = os.path.join(output_dir, "outliers.gif")
-    _make_outlier_animation(data_list, times, diff_anim_path)
+    # detect outliers across the sequence
+    masks, cumulative = _detect_outliers(data_list, sigma=5)
 
-    # compute outlier counts per frame using same logic as _make_outlier_animation
-    outlier_counts: List[int] = []
-    ref = data_list[0]
-    for frame in data_list:
-        diff = frame - ref
-        cur_std = np.std(diff)
-        thresh = 5 * cur_std if cur_std > 0 else 0
-        mask = np.abs(diff) > thresh
-        outlier_counts.append(int(np.sum(mask)))
+    diff_anim_path = os.path.join(output_dir, "outliers.gif")
+    _make_outlier_animation(data_list, masks, times, diff_anim_path)
+
+    # compute outlier counts per frame using masks
+    outlier_counts = [int(np.sum(m)) for m in masks]
+
+    # save cumulative mask
+    plt.imsave(os.path.join(output_dir, "cumulative_outliers.png"), cumulative, cmap="gray", origin="lower")
+    fits.writeto(
+        os.path.join(output_dir, "cumulative_outliers.fits"),
+        cumulative.astype(np.uint8),
+        overwrite=True,
+    )
 
     plot_path = os.path.join(output_dir, "metrics.png")
     _plot_logs(rad_log, power_log, plot_path, times, outlier_counts)
