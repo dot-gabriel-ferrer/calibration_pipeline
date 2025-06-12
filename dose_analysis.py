@@ -271,6 +271,30 @@ def _pixel_precision_analysis(groups: Dict[Tuple[str, str, float, float | None],
         fits.writeto(os.path.join(outdir, f"adu_err16_{tag}.fits"), adu_err16.astype(np.float32), overwrite=True)
         fits.writeto(os.path.join(outdir, f"adu_err12_{tag}.fits"), adu_err12.astype(np.float32), overwrite=True)
 
+        plt.figure(figsize=(6, 5))
+        im = plt.imshow(mag_err, origin="lower", cmap="magma")
+        plt.colorbar(im, label="Magnitude error [mag]")
+        plt.title(f"Magnitude error {tag}")
+        plt.tight_layout()
+        plt.savefig(os.path.join(outdir, f"mag_err_{tag}.png"))
+        plt.close()
+
+        plt.figure(figsize=(6, 5))
+        im = plt.imshow(adu_err16, origin="lower", cmap="viridis")
+        plt.colorbar(im, label="ADU error (16 bit)")
+        plt.title(f"ADU error 16-bit {tag}")
+        plt.tight_layout()
+        plt.savefig(os.path.join(outdir, f"adu_err16_{tag}.png"))
+        plt.close()
+
+        plt.figure(figsize=(6, 5))
+        im = plt.imshow(adu_err12, origin="lower", cmap="viridis")
+        plt.colorbar(im, label="ADU error (12 bit)")
+        plt.title(f"ADU error 12-bit {tag}")
+        plt.tight_layout()
+        plt.savefig(os.path.join(outdir, f"adu_err12_{tag}.png"))
+        plt.close()
+
         h, w = mag_err.shape
         my, mx = h // 2, w // 2
         zones = [
