@@ -4,7 +4,9 @@ import numpy as np
 import pytest
 from astropy.io import fits
 
-from utils.index_dataset import index_sections, _infer_vacuum
+
+from utils.index_dataset import index_sections, _infer_stage
+
 
 
 def _make_fits(path, data, temp=None):
@@ -94,18 +96,30 @@ def test_multiple_dataset_lists(tmp_path):
     assert len(rows) == 6  # two datasets with one file per caltype
 
 
-@pytest.mark.parametrize(
-    "path,expected",
-    [
-        ("vacuum", "vacuum"),
-        ("novac", "air"),
-        ("no_vac", "air"),
-        (os.path.join("vacuum", "no_vac"), "air"),
-        (os.path.join("novac", "vac"), "vacuum"),
-        ("tests_duringradiation_novacuum", "air"),
-    ],
-)
-def test_infer_vacuum(path, expected):
-    """Verify vacuum inference from path tokens."""
-    assert _infer_vacuum(path) == expected
+
+
+def test_infer_stage_prefers_deepest_pre(tmp_path):
+    path = tmp_path / "tests_duringradiation_novacuum" / "PreIrradiation" / "Bias"
+    assert _infer_stage(str(path)) == "pre"
+
+
+def test_infer_stage_post_directory(tmp_path):
+    path = (
+        tmp_path
+        / "tests_duringradiation_novacuum"
+        / "PostIrradiation"
+        / "Bias"
+    )
+    assert _infer_stage(str(path)) == "post"
+
+
+def test_infer_stage_during_directory(tmp_path):
+    path = (
+        tmp_path
+        / "tests_duringradiation_novacuum"
+        / "DuringIrradiation"
+        / "Bias"
+    )
+    assert _infer_stage(str(path)) == "during"
+
 

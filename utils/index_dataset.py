@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 
 def _infer_stage(path: str) -> Optional[str]:
-    for part in path.split(os.sep):
+    parts = path.split(os.sep)
+    for part in reversed(parts):
         low = part.lower()
         if "pre" in low:
             return "pre"
