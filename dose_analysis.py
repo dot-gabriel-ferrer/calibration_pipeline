@@ -198,7 +198,14 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
 
 
 def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
-    """Return estimated photometric precision for ``during`` bias/dark."""
+    """Return estimated photometric precision for ``during`` bias/dark.
+
+    The returned ``DataFrame`` now also includes the standard deviation of
+    the magnitude error for each dose (``MAG_ERR_STD``).  The deviation is
+    computed from the magnitude error estimated for every available bias/dark
+    frame combination at the same radiation dose.
+    """
+
     df = summary[summary["STAGE"] == "during"]
     bias = df[df["CALTYPE"] == "BIAS"]
     dark = df[df["CALTYPE"] == "DARK"]
@@ -208,14 +215,25 @@ def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
     for d in doses:
         b = bias[bias["DOSE"] == d]
         dk = dark[dark["DOSE"] == d]
-        b_mean = b["MEAN"].mean()
-        b_std = b["STD"].mean()
-        d_std = dk["STD"].mean()
-        signal = (full_scale - b_mean) / 2.0
-        noise = np.sqrt(signal + b_std**2 + d_std**2)
-        snr = signal / noise if noise > 0 else 0.0
-        mag_err = 1.0857 / snr if snr > 0 else np.inf
-        rows.append({"DOSE": float(d), "MAG_ERR": float(mag_err)})
+
+        mag_errs: list[float] = []
+        for _, b_row in b.iterrows():
+            for _, d_row in dk.iterrows():
+                signal = (full_scale - b_row["MEAN"]) / 2.0
+                noise = np.sqrt(signal + b_row["STD"] ** 2 + d_row["STD"] ** 2)
+                snr = signal / noise if noise > 0 else 0.0
+                mag_err = 1.0857 / snr if snr > 0 else np.inf
+                mag_errs.append(float(mag_err))
+
+        if mag_errs:
+            rows.append(
+                {
+                    "DOSE": float(d),
+                    "MAG_ERR": float(np.mean(mag_errs)),
+                    "MAG_ERR_STD": float(np.std(mag_errs)),
+                }
+            )
+
     return pd.DataFrame(rows)
 
 
@@ -225,12 +243,21 @@ def _plot_photometric_precision(df: pd.DataFrame, outdir: str) -> None:
     os.makedirs(outdir, exist_ok=True)
     df = df.sort_values("DOSE")
     fig, ax = plt.subplots()
-    ax.plot(df["DOSE"], df["MAG_ERR"], marker="o")
+    ax.errorbar(
+        df["DOSE"],
+        df["MAG_ERR"],
+        yerr=df.get("MAG_ERR_STD"),
+        fmt="o-",
+    )
     ax.set_xlabel("Dose [kRad]")
     ax.set_ylabel("Magnitude error [mag]")
     ax.set_title("Photometric precision during irradiation")
     ax.grid(True, which="both", ls="--", alpha=0.5)
-    stats = f"min={df['MAG_ERR'].min():.3f}\nmax={df['MAG_ERR'].max():.3f}"
+    stats = (
+        f"min={df['MAG_ERR'].min():.3f}\n"
+        f"max={df['MAG_ERR'].max():.3f}\n"
+        f"\u03C3={df.get('MAG_ERR_STD').mean():.3f}"
+    )
     fig.text(1.02, 0.5, stats, va="center")
     fig.tight_layout()
     fig.savefig(os.path.join(outdir, "photometric_precision_vs_dose.png"))
