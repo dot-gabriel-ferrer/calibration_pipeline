@@ -39,13 +39,36 @@ def _run_irradiation(base: str, output_dir: str) -> None:
     if os.path.isdir(post):
         stages.append((post, "post"))
 
+    def _has_fits(root: str) -> bool:
+        """Return ``True`` if ``root`` contains a ``fits/`` directory with files."""
+        if not os.path.isdir(root):
+            return False
+        for dirpath, dirnames, filenames in os.walk(root):
+            if os.path.basename(dirpath) == "fits":
+                if any(f.lower().endswith(".fits") for f in filenames):
+                    return True
+        return False
+
     index_frames = []
     for path, stage in stages:
         bias = os.path.join(path, "Bias")
         dark = os.path.join(path, "Darks")
         flat = os.path.join(path, "Flats")
 
-        raw_to_fits.convert_many(bias, dark, flat, search_depth=6)
+        skip_bias = _has_fits(bias)
+        skip_dark = _has_fits(dark)
+        skip_flat = _has_fits(flat)
+
+        if not (skip_bias and skip_dark and skip_flat):
+            raw_to_fits.convert_many(
+                bias,
+                dark,
+                flat,
+                search_depth=6,
+                skip_bias=skip_bias,
+                skip_dark=skip_dark,
+                skip_flat=skip_flat,
+            )
         tmp_csv = os.path.join(path, "index.csv")
         index_dataset.index_sections(bias, dark, flat, tmp_csv, stage=stage, search_depth=6)
         if os.path.isfile(tmp_csv):
