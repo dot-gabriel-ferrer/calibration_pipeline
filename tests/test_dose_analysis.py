@@ -182,5 +182,7 @@ def test_compare_stage_differences_generates_heatmaps(tmp_path):
 
     assert (out_dir / "stage_differences.csv").is_file()
     assert (out_dir / "bias_first_vs_pre.png").is_file()
+    assert (out_dir / "bias_first_vs_pre_log.png").is_file()
     assert (out_dir / "bias_post_vs_last.png").is_file()
+    assert (out_dir / "bias_post_vs_last_log.png").is_file()
 
