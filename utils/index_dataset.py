@@ -1,11 +1,11 @@
 # coding: utf-8
-"""Index FITS files from the three calibration sections.
+"""Index FITS files from calibration datasets.
 
 The script scans the ``TestSection1`` (bias), ``TestSection2`` (dark) and
-``TestSection3`` (flat) directories and generates a CSV summary of all FITS
-files found.  Optionally the radiation stage and vacuum state can be
-specified on the command line.  If not provided, they are inferred from the
-directory names.
+``TestSection3`` (flat) directories of one or more datasets and generates a CSV
+summary of all FITS files found.  Optionally the radiation stage and vacuum
+state can be specified on the command line.  If not provided, they are inferred
+from the directory names.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import csv
 import glob
 import logging
 import os
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Sequence, Union
 
 from tqdm import tqdm
 
@@ -72,9 +72,9 @@ def _process_fits(path: str, caltype: str, stage: Optional[str], vacuum: Optiona
 
 
 def index_sections(
-    bias_root: str,
-    dark_root: str,
-    flat_root: str,
+    bias_root: Union[str, Sequence[str]],
+    dark_root: Union[str, Sequence[str]],
+    flat_root: Union[str, Sequence[str]],
     output_csv: str,
     *,
     stage: Optional[str] = None,
@@ -88,23 +88,28 @@ def index_sections(
         (flat_root, "FLAT"),
     ]
 
-    for root, cal in datasets:
-        if not os.path.isdir(root):
-            logger.warning("Dataset path %s does not exist", root)
+    for roots, cal in datasets:
+        if not roots:
             continue
-        ds_stage = stage or _infer_stage(root)
-        ds_vacuum = vacuum or _infer_vacuum(root)
-        attempts = gather_attempts(root, max_depth=search_depth)
-        if not attempts:
-            attempts = [root]
-        for attempt in tqdm(attempts, desc=f"{cal} attempts", ncols=80):
-            fits_dir = os.path.join(attempt, "fits")
-            patterns = [os.path.join(fits_dir, "*.fits"), os.path.join(attempt, "*.fits")]
-            files: List[str] = []
-            for pattern in patterns:
-                files.extend(sorted(glob.glob(pattern)))
-            for fpath in tqdm(files, desc=os.path.basename(attempt), leave=False, ncols=80):
-                rows.append(_process_fits(fpath, cal, ds_stage, ds_vacuum))
+        if isinstance(roots, str):
+            roots = [roots]
+        for root in roots:
+            if not os.path.isdir(root):
+                logger.warning("Dataset path %s does not exist", root)
+                continue
+            ds_stage = stage or _infer_stage(root)
+            ds_vacuum = vacuum or _infer_vacuum(root)
+            attempts = gather_attempts(root, max_depth=search_depth)
+            if not attempts:
+                attempts = [root]
+            for attempt in tqdm(attempts, desc=f"{cal} attempts", ncols=80):
+                fits_dir = os.path.join(attempt, "fits")
+                patterns = [os.path.join(fits_dir, "*.fits"), os.path.join(attempt, "*.fits")]
+                files: List[str] = []
+                for pattern in patterns:
+                    files.extend(sorted(glob.glob(pattern)))
+                for fpath in tqdm(files, desc=os.path.basename(attempt), leave=False, ncols=80):
+                    rows.append(_process_fits(fpath, cal, ds_stage, ds_vacuum))
 
     if not rows:
         logger.warning("No FITS files found")
@@ -123,10 +128,26 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Index FITS calibration dataset")
-    parser.add_argument("bias_section", help="Path to TestSection1 (BIAS)")
-    parser.add_argument("dark_section", help="Path to TestSection2 (DARK)")
-    parser.add_argument("flat_section", help="Path to TestSection3 (FLAT)")
+    parser.add_argument(
+        "--bias",
+        dest="bias_sections",
+        action="append",
+        help="Path to TestSection1 (BIAS). Can be used multiple times",
+    )
+    parser.add_argument(
+        "--dark",
+        dest="dark_sections",
+        action="append",
+        help="Path to TestSection2 (DARK). Can be used multiple times",
+    )
+    parser.add_argument(
+        "--flat",
+        dest="flat_sections",
+        action="append",
+        help="Path to TestSection3 (FLAT). Can be used multiple times",
+    )
     parser.add_argument("output_csv", help="Output CSV path")
+    parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
     parser.add_argument("--stage", choices=["pre", "during", "post"], help="Radiation stage")
     parser.add_argument("--vacuum", help="Vacuum state")
     parser.add_argument("--search-depth", type=int, default=6, help="Maximum directory depth when searching for attempts")
@@ -139,10 +160,26 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
         format="%(levelname)s: %(message)s",
     )
 
+    bias_sections = args.bias_sections or []
+    dark_sections = args.dark_sections or []
+    flat_sections = args.flat_sections or []
+
+    if args.positional:
+        if len(args.positional) >= 3:
+            bias_sections.append(args.positional[0])
+            dark_sections.append(args.positional[1])
+            flat_sections.append(args.positional[2])
+            args.positional = args.positional[3:]
+        if args.positional:
+            parser.error("Unexpected positional arguments: %s" % " ".join(args.positional))
+
+    if not (bias_sections or dark_sections or flat_sections):
+        parser.error("No dataset sections specified")
+
     index_sections(
-        args.bias_section,
-        args.dark_section,
-        args.flat_section,
+        bias_sections,
+        dark_sections,
+        flat_sections,
         args.output_csv,
         stage=args.stage,
         vacuum=args.vacuum,
