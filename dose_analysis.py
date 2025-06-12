@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from collections import defaultdict
 from typing import Dict, Iterable, List, Tuple
 
@@ -45,6 +46,15 @@ def _exptime_from_path(path: str) -> float | None:
     _, exp = _parse_temp_exp_from_path(path)
     if exp is not None:
         return exp
+
+    base = os.path.basename(path)
+    m = re.search(r"_E([0-9]+(?:\.[0-9]+)?)", base)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            pass
+
     try:
         hdr = fits.getheader(path)
         if "EXPTIME" in hdr:
@@ -91,10 +101,25 @@ def _make_master(paths: List[str]) -> Tuple[np.ndarray, fits.Header]:
 
 def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None], List[str]]:
     groups: Dict[Tuple[str, str, float, float | None], List[str]] = defaultdict(list)
+    during_doses: List[float] = []
+
+    for _, row in df.iterrows():
+        if row["STAGE"] == "during":
+            d = _dose_from_path(row["PATH"])
+            if d is not None:
+                during_doses.append(d)
+
+    min_dose = min(during_doses) if during_doses else 0.0
+    max_dose = max(during_doses) if during_doses else 0.0
+
     for _, row in df.iterrows():
         stage = row["STAGE"]
         cal = row["CALTYPE"]
         dose = _dose_from_path(row["PATH"])
+        if stage == "pre":
+            dose = min_dose
+        elif stage == "post":
+            dose = max_dose
         if dose is None:
             dose = 0.0
         exp = _exptime_from_path(row["PATH"])
@@ -103,35 +128,59 @@ def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None],
 
 
 def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
-    """Plot mean signal vs dose only for the ``during`` stage."""
-    summary = summary[summary["STAGE"] == "during"]
+    """Plot mean signal vs dose for all stages grouped by exposure time."""
     if summary.empty:
         return
+
     os.makedirs(outdir, exist_ok=True)
     for cal in sorted(summary["CALTYPE"].unique()):
-        plt.figure()
-        sub = summary[summary["CALTYPE"] == cal]
-        if sub.empty:
-            plt.close()
+        cal_df = summary[summary["CALTYPE"] == cal]
+        if cal_df.empty:
             continue
-        x = sub["DOSE"].astype(float)
-        y = sub["MEAN"].astype(float)
-        e = sub["STD"].astype(float)
-        order = np.argsort(x)
-        x = x.iloc[order]
-        y = y.iloc[order]
-        e = e.iloc[order]
-        plt.plot(x, y, label="during")
-        plt.fill_between(x, y - e, y + e, alpha=0.3)
 
-        plt.xlabel("Dose [kRad]")
-        plt.ylabel("Mean ADU")
-        plt.title(cal)
-        plt.legend()
-        plt.tight_layout()
-        fname = f"{cal.lower()}_mean_vs_dose.png"
-        plt.savefig(os.path.join(outdir, fname))
-        plt.close()
+        exp_values = sorted(cal_df["EXPTIME"].dropna().unique())
+        if not exp_values:
+            exp_values = [None]
+
+        for exp in exp_values:
+            if exp is None:
+                sub = cal_df[cal_df["EXPTIME"].isna()]
+            else:
+                sub = cal_df[cal_df["EXPTIME"] == exp]
+
+            if sub.empty:
+                continue
+
+            plt.figure()
+            for stage in ("pre", "during", "post"):
+                stage_df = sub[sub["STAGE"] == stage]
+                if stage_df.empty:
+                    continue
+                x = stage_df["DOSE"].astype(float)
+                y = stage_df["MEAN"].astype(float)
+                e = stage_df["STD"].astype(float)
+                order = np.argsort(x)
+                x = x.iloc[order]
+                y = y.iloc[order]
+                e = e.iloc[order]
+                fmt = "o" if len(x) == 1 else "-o"
+                plt.errorbar(x, y, yerr=e, fmt=fmt, label=stage)
+
+            plt.xlabel("Dose [kRad]")
+            plt.ylabel("Mean ADU")
+            title = cal
+            if exp is not None:
+                title += f" E={exp:g}s"
+            plt.title(title)
+            plt.legend()
+            plt.tight_layout()
+
+            fname = f"{cal.lower()}_mean_vs_dose"
+            if exp is not None:
+                fname += f"_E{str(exp).replace('.', 'p')}s"
+            fname += ".png"
+            plt.savefig(os.path.join(outdir, fname))
+            plt.close()
 
 
 def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:

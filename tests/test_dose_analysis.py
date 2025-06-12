@@ -25,8 +25,8 @@ def test_dose_parsing():
 
 
 def test_group_and_master(tmp_path):
-    f1 = tmp_path / 'Bias_1kRads_exp1sframe0.fits'
-    f2 = tmp_path / 'Bias_1kRads_exp1sframe1.fits'
+    f1 = tmp_path / 'Bias_1kRads_E1.0_frame0.fits'
+    f2 = tmp_path / 'Bias_1kRads_E1.0_frame1.fits'
     _make_fits(f1, 1, temp=10.0, exp=1.0)
     _make_fits(f2, 3, temp=12.0, exp=1.0)
 
@@ -49,24 +49,24 @@ def test_group_and_master(tmp_path):
     assert 'T_MEAN' in hdr and abs(hdr['T_MEAN'] - 11.0) < 1e-6
 
 
-def test_save_plot_filters_during(monkeypatch, tmp_path):
+def test_save_plot_all_stages(monkeypatch, tmp_path):
     summary = pd.DataFrame([
-        {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 0.0, "MEAN": 1.0, "STD": 0.1},
-        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 0.0, "MEAN": 2.0, "STD": 0.2},
+        {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
+        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.2},
+        {"STAGE": "post", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 3.0, "STD": 0.3},
     ])
 
-    calls = []
+    labels = []
 
-    def fake_plot(x, y, label=None, **k):
-        calls.append(label)
+    def fake_errorbar(x, y, yerr=None, fmt=None, label=None, **k):
+        labels.append(label)
 
-    monkeypatch.setattr('matplotlib.pyplot.plot', fake_plot)
-    monkeypatch.setattr('matplotlib.pyplot.fill_between', lambda *a, **k: None)
+    monkeypatch.setattr('matplotlib.pyplot.errorbar', fake_errorbar)
     monkeypatch.setattr('matplotlib.pyplot.savefig', lambda *a, **k: None)
 
     _save_plot(summary, tmp_path)
 
-    assert calls == ['during']
+    assert sorted(labels) == ['during', 'post', 'pre']
 
 
 def test_compute_photometric_precision():
