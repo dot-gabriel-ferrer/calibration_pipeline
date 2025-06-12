@@ -129,22 +129,22 @@ def _make_outlier_animation(
     times: List[float],
     outpath: str,
 ) -> None:
-    mean_frame = np.mean(np.stack(frames), axis=0)
-    diffs = [frame - mean_frame for frame in frames]
+    stack = np.stack(frames)
+    global_mean = np.mean(stack)
+    global_std = np.std(stack)
+    vmin = global_mean - 5 * global_std
+    vmax = global_mean + 5 * global_std
+
+    masked_frames = [np.where(m, np.clip(f, vmin, vmax), 0) for f, m in zip(frames, masks)]
+
     fig, ax = plt.subplots()
-    im = ax.imshow(diffs[0], cmap="seismic", origin="lower", animated=True)
-    scatter = ax.scatter([], [], facecolors="none", edgecolors="yellow", s=10)
+    im = ax.imshow(masked_frames[0], cmap="gray", origin="lower", animated=True, vmin=vmin, vmax=vmax)
     text = ax.text(0.02, 1.05, "", transform=ax.transAxes, color="#006400")
 
     def update(i: int):
-        im.set_array(diffs[i])
-        coords = np.argwhere(masks[i])
-        if coords.size:
-            scatter.set_offsets(coords[:, [1, 0]])
-        else:
-            scatter.set_offsets(np.empty((0, 2)))
-        text.set_text(f"t={times[i]:.1f}s")
-        return [im, scatter, text]
+        im.set_array(masked_frames[i])
+        text.set_text(f"t={times[i]:.1f}s\nOutliers={int(np.sum(masks[i]))}")
+        return [im, text]
 
     ani = FuncAnimation(fig, update, frames=len(frames), interval=100, blit=True)
     ani.save(outpath, writer=PillowWriter(fps=8))
