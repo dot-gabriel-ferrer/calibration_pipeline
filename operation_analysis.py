@@ -221,6 +221,33 @@ def _plot_logs(
     plt.close()
 
 
+def _plot_intensity_stats(
+    means: list[float], stds: list[float], times: list[float], outpath: str
+) -> None:
+    if not means:
+        return
+
+    t = np.array(times, dtype=float)
+    m = np.array(means, dtype=float)
+    s = np.array(stds, dtype=float)
+
+    mean_fit = np.polyfit(t, m, 1) if len(t) > 1 else (0.0, m[0])
+    std_fit = np.polyfit(t, s, 1) if len(t) > 1 else (0.0, s[0])
+    trend_t = np.array([t[0], t[-1]])
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(t, m, label="Mean")
+    plt.plot(t, s, label="StdDev")
+    plt.plot(trend_t, mean_fit[0] * trend_t + mean_fit[1], "k--", label="Mean Trend")
+    plt.plot(trend_t, std_fit[0] * trend_t + std_fit[1], "r--", label="Std Trend")
+    plt.xlabel("Time")
+    plt.ylabel("Value")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(outpath)
+    plt.close()
+
+
 def analyze_directory(dir_path: str, output_dir: str) -> None:
     level = _parse_rads(os.path.basename(dir_path))
     if level is None:
@@ -235,9 +262,13 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
     fits_paths = _load_frames(dir_path)
     data_list: List[np.ndarray] = []
     times: List[float] = []
+    means: List[float] = []
+    stds: List[float] = []
     for fp in tqdm(fits_paths, desc="Loading frames", unit="frame"):
         data, hdr = _read_frame(fp)
         data_list.append(data)
+        means.append(float(np.mean(data)))
+        stds.append(float(np.std(data)))
         ts = hdr.get("TIMESTAMP")
         if ts is None:
             ts = hdr.get("TIME", 0.0)
@@ -245,6 +276,8 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
 
     if not data_list:
         return
+
+    mean_frame = np.mean(np.stack(data_list), axis=0)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -267,13 +300,20 @@ def analyze_directory(dir_path: str, output_dir: str) -> None:
     plot_path = os.path.join(output_dir, "metrics.png")
     _plot_logs(rad_log, power_log, plot_path, times, outlier_counts)
 
+    intens_path = os.path.join(output_dir, "intensity_stats.png")
+    _plot_intensity_stats(means, stds, times, intens_path)
+
     vmin, vmax = np.percentile(data_list[0], [5, 95])
-    plt.figure(figsize=(8, 4))
-    plt.subplot(1, 2, 1)
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 3, 1)
     plt.imshow(data_list[0], cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
     plt.title("First")
     plt.axis("off")
-    plt.subplot(1, 2, 2)
+    plt.subplot(1, 3, 2)
+    plt.imshow(mean_frame, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
+    plt.title("Mean")
+    plt.axis("off")
+    plt.subplot(1, 3, 3)
     plt.imshow(data_list[-1], cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
     plt.title("Last")
     plt.axis("off")
