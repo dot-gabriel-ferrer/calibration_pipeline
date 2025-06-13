@@ -38,13 +38,30 @@ The repository also includes a couple of standalone scripts useful for data expl
   comparing noise and magnitude errors to the pre-irradiation stage. The
   resulting plots (`relative_noise_vs_dose_*`, `relative_mag_err_vs_dose_*`)
   and their `.npz` arrays are written inside `analysis/`, along with
-  `relative_precision.npz` summarising all stages and an optional
-  `pre_vs_post_relative_precision.png` when post data are available.
+`relative_precision.npz` summarising all stages and an optional
+`pre_vs_post_relative_precision.png` when post data are available.
 
 The stored differences indicate how much the detector baseline shifts when
 irradiation begins and how much of that shift remains once the source is turned
 off. Positive values mean the radiating stage has a higher mean level than the
 reference stage.
+
+### Bias y dark frente a dosis
+
+`dose_analysis.py` también evalúa cómo evolucionan el ruido de bias y dark con la
+dosis y con la tasa de dosis. Para cada grupo de marcos se genera un “master” y
+se registran su media (`MEAN`) y desviación típica (`STD`), que representan el
+error de bias o dark. Los gráficos `bias_mean_std_vs_dose.png` y
+`dark_mean_std_vs_dose.png` muestran la variación de la media y del ruido con la
+dosis, incluyendo las rectas de ajuste `STD = a * MEAN + b` para tomas irradiadas
+y no irradiadas. Los valores y coeficientes utilizados se guardan en los archivos
+`bias_mean_std_vs_dose.npz` y `dark_mean_std_vs_dose.npz`.
+
+De forma análoga, los gráficos `dose_rate_effect_bias.png` y
+`dose_rate_effect_dark.png` comparan media y ruido frente a la tasa de dosis
+(`DOSE_RATE`). Los ficheros `dose_rate_effect_bias.npz` y
+`dose_rate_effect_dark.npz` contienen las matrices de dosis por segundo y las
+medidas usadas en las figuras.
 
 ## Installation
 
