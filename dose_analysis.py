@@ -1009,6 +1009,160 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
 
     return pd.DataFrame(rows)
 
+
+def _relative_precision_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
+    """Analyse noise and magnitude precision relative to the pre stage.
+
+    For every available dose the bias and dark statistics are combined to
+    estimate the ADU noise and magnitude error on both the 16‑bit and 12‑bit
+    scales.  The mean values from the ``pre`` stage are used as a reference and
+    subtracted from the other stages so that a value of zero represents the
+    initial detector performance.
+
+    Four figures are produced: relative ADU noise for the 16‑bit and 12‑bit
+    scales and relative magnitude error for the two scales.  When ``post`` data
+    are present an additional figure compares the average pre and post values.
+    Arrays with the plotted differences are stored in ``relative_precision.npz``.
+    """
+
+    bias = summary[summary["CALTYPE"] == "BIAS"]
+    dark = summary[summary["CALTYPE"] == "DARK"]
+    if bias.empty or dark.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, float]] = []
+    for stage in ("pre", "radiating", "post"):
+        b_stage = bias[bias["STAGE"] == stage]
+        d_stage = dark[dark["STAGE"] == stage]
+        doses = sorted(set(b_stage["DOSE"]) & set(d_stage["DOSE"]))
+        for d in doses:
+            b_rows = b_stage[b_stage["DOSE"] == d]
+            d_rows = d_stage[d_stage["DOSE"] == d]
+            if b_rows.empty or d_rows.empty:
+                continue
+
+            bias_mean = float(b_rows["MEAN"].mean())
+            dark_mean = float(d_rows["MEAN"].mean())
+            bias_std = float(b_rows["STD"].mean())
+            dark_std = float(d_rows["STD"].mean())
+
+            base16 = bias_mean + dark_mean
+            base12 = base16 / 16.0
+            dr16 = 65536.0 - base16
+            dr12 = 4096.0 - base12
+            noise = float(np.sqrt(bias_std ** 2 + dark_std ** 2))
+            noise12 = noise / 16.0
+            mag16 = float(1.0857 * noise / dr16) if dr16 > 0 else float("inf")
+            mag12 = float(1.0857 * noise12 / dr12) if dr12 > 0 else float("inf")
+
+            rows.append(
+                {
+                    "STAGE": stage,
+                    "DOSE": float(d),
+                    "NOISE16": noise,
+                    "NOISE12": noise12,
+                    "MAG16": mag16,
+                    "MAG12": mag12,
+                }
+            )
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    pre_mean = df[df["STAGE"] == "pre"].mean(numeric_only=True)
+    n16_ref = float(pre_mean.get("NOISE16", np.nan))
+    n12_ref = float(pre_mean.get("NOISE12", np.nan))
+    m16_ref = float(pre_mean.get("MAG16", np.nan))
+    m12_ref = float(pre_mean.get("MAG12", np.nan))
+
+    df["NOISE16_DIFF"] = df["NOISE16"] - n16_ref
+    df["NOISE12_DIFF"] = df["NOISE12"] - n12_ref
+    df["MAG16_DIFF"] = df["MAG16"] - m16_ref
+    df["MAG12_DIFF"] = df["MAG12"] - m12_ref
+
+    os.makedirs(outdir, exist_ok=True)
+
+    # Helper to plot one metric
+    def _plot(metric: str, ylabel: str, fname: str) -> None:
+        fig, ax = plt.subplots()
+        plot_data: dict[str, np.ndarray] = {}
+        for stage in ("pre", "radiating", "post"):
+            sub = df[df["STAGE"] == stage]
+            if sub.empty:
+                continue
+            x = sub["DOSE"].astype(float)
+            y = sub[metric].astype(float)
+            order = np.argsort(x)
+            x = x.iloc[order]
+            y = y.iloc[order]
+            fmt = "o" if len(x) == 1 else "-o"
+            ax.plot(x, y, fmt, label=stage)
+            plot_data[f"{stage}_dose"] = x.to_numpy()
+            plot_data[f"{stage}_{metric}"] = y.to_numpy()
+        ax.set_xlabel("Dose [kRad]")
+        ax.set_ylabel(ylabel)
+        ax.set_title(ylabel + " change vs dose")
+        ax.grid(True, ls="--", alpha=0.5)
+        ax.legend()
+        fig.tight_layout()
+        out_png = os.path.join(outdir, fname + ".png")
+        fig.savefig(out_png)
+        plt.close(fig)
+        np.savez_compressed(os.path.splitext(out_png)[0] + ".npz", **plot_data)
+
+    _plot("NOISE16_DIFF", "ADU noise (16 bit)", "relative_noise_vs_dose_16")
+    _plot("NOISE12_DIFF", "ADU noise (12 bit)", "relative_noise_vs_dose_12")
+    _plot(
+        "MAG16_DIFF",
+        "Magnitude error (16 bit)",
+        "relative_mag_err_vs_dose_16",
+    )
+    _plot(
+        "MAG12_DIFF",
+        "Magnitude error (12 bit)",
+        "relative_mag_err_vs_dose_12",
+    )
+
+    # Pre vs post comparison
+    post_df = df[df["STAGE"] == "post"]
+    if not post_df.empty:
+        pre_df = df[df["STAGE"] == "pre"]
+        fig, axes = plt.subplots(2, 2, figsize=(8, 6))
+        metrics = [
+            ("NOISE16_DIFF", "ADU noise (16 bit)"),
+            ("NOISE12_DIFF", "ADU noise (12 bit)"),
+            ("MAG16_DIFF", "Magnitude error (16 bit)"),
+            ("MAG12_DIFF", "Magnitude error (12 bit)"),
+        ]
+        save_data: dict[str, float] = {}
+        for ax, (metric, label) in zip(axes.flat, metrics):
+            pre_val = float(pre_df[metric].mean()) if not pre_df.empty else np.nan
+            post_val = float(post_df[metric].mean())
+            ax.bar(["pre", "post"], [pre_val, post_val], color=["C0", "C1"])
+            ax.set_ylabel(label)
+            ax.grid(True, ls="--", alpha=0.5)
+            save_data[f"pre_{metric}"] = pre_val
+            save_data[f"post_{metric}"] = post_val
+        fig.suptitle("Pre vs post relative precision")
+        fig.tight_layout()
+        out_png = os.path.join(outdir, "pre_vs_post_relative_precision.png")
+        fig.savefig(out_png)
+        plt.close(fig)
+        np.savez_compressed(os.path.splitext(out_png)[0] + ".npz", **save_data)
+
+    np.savez_compressed(
+        os.path.join(outdir, "relative_precision.npz"),
+        stage=df["STAGE"].to_numpy(),
+        dose=df["DOSE"].to_numpy(float),
+        noise16_diff=df["NOISE16_DIFF"].to_numpy(float),
+        noise12_diff=df["NOISE12_DIFF"].to_numpy(float),
+        mag16_diff=df["MAG16_DIFF"].to_numpy(float),
+        mag12_diff=df["MAG12_DIFF"].to_numpy(float),
+    )
+
+    return df
+
 def main(index_csv: str, output_dir: str) -> None:
     df = pd.read_csv(index_csv)
     df = df[df.get("BADFITS", False) == False]
@@ -1053,6 +1207,7 @@ def main(index_csv: str, output_dir: str) -> None:
     _fit_base_level_trend(summary, os.path.join(output_dir, "analysis"))
     _stage_base_level_diff(summary, os.path.join(output_dir, "analysis"))
     _dynamic_range_analysis(summary, os.path.join(output_dir, "analysis"))
+    _relative_precision_analysis(summary, os.path.join(output_dir, "analysis"))
 
     precision_df = _compute_photometric_precision(summary)
     precision_csv = os.path.join(output_dir, "photometric_precision.csv")
