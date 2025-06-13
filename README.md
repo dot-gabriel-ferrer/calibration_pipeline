@@ -32,14 +32,12 @@ The repository also includes a couple of standalone scripts useful for data expl
   It also compares the first/last irradiation base levels with the pre/post
   values, saving the differences versus dose in `analysis/stage_base_diff.npz`
   and the accompanying figures. Plots of mean signal, photometric precision
-  and magnitude/ADU error versus dose are stored in `plots/` together with
-  matching `.npz` files (e.g. `mag_err_vs_dose.npz`) containing the plotted
-  arrays. The script now performs a *relative photometric precision* analysis,
-  comparing noise and magnitude errors to the pre-irradiation stage. The
-  resulting plots (`relative_noise_vs_dose_*`, `relative_mag_err_vs_dose_*`)
-  and their `.npz` arrays are written inside `analysis/`, along with
-`relative_precision.npz` summarising all stages and an optional
-`pre_vs_post_relative_precision.png` when post data are available.
+  and magnitude/ADU error versus dose are stored in `plots/` with matching
+  `.npz` arrays (e.g. `plots/mag_err_vs_dose.npz`). The script also performs
+  a *relative photometric precision* analysis comparing noise and magnitude
+  errors to the pre-irradiation stage. The four resulting figures
+  (`analysis/relative_noise_vs_dose_16.png`, etc.) are written in `analysis/`
+  alongside arrays with the same base name. A combined table `analysis/relative_precision.npz` summarises all stages and, when post data exist, `analysis/pre_vs_post_relative_precision.png` and `.npz` compare the mean pre and post values.
 
 The stored differences indicate how much the detector baseline shifts when
 irradiation begins and how much of that shift remains once the source is turned

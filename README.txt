@@ -9,10 +9,10 @@ The results are grouped inside ``output_dir`` in several subdirectories:
 
 ```
 output_dir/
-├── analysis/          # trend fits and relative precision arrays
+├── analysis/          # trend fits, dynamic range and relative precision data
 ├── masters/           # generated master calibration frames
 ├── pixel_precision/   # per-pixel error maps and statistics
-└── plots/             # mean signal and precision figures
+└── plots/             # mean signal, photometric precision and other figures
 ```
 
 Noise estimation
@@ -65,7 +65,7 @@ Relative photometric precision
 The script now measures how the expected magnitude error and noise change
 relative to the **pre** stage.  The per-dose values from the ``pre`` stage are
 used as a reference so that zero represents the initial detector performance.
-Four figures are produced inside ``analysis/``:
+Four figures are produced inside ``analysis/`` (positive values mean the noise or magnitude error increased relative to the `pre` stage):
 
 ``relative_noise_vs_dose_16.png``
     ADU noise difference for the 16‑bit scale.
@@ -76,11 +76,7 @@ Four figures are produced inside ``analysis/``:
 ``relative_mag_err_vs_dose_12.png``
     Magnitude error change for the 12‑bit scale.
 
-The raw arrays plotted in these figures are saved as ``.npz`` files with the
-same base names, and a combined table ``relative_precision.npz`` contains all
-stages for custom processing.  If post‑irradiation data are available, an extra
-``pre_vs_post_relative_precision.png`` compares the pre and post values and its
-data are stored in ``pre_vs_post_relative_precision.npz``.
+The raw arrays plotted in these figures are written next to the images inside ``analysis/`` with the same base names (e.g. ``analysis/relative_noise_vs_dose_16.npz``). A combined table ``analysis/relative_precision.npz`` stores all stages for custom processing. When post‑irradiation data are present the script also creates ``analysis/pre_vs_post_relative_precision.png`` and ``analysis/pre_vs_post_relative_precision.npz`` comparing the mean pre and post values.
 
 Saved `.npz` files
 ------------------
@@ -98,6 +94,7 @@ Several helper arrays are stored in the analysis directory:
   precision when both stages are available.
 * ``plots/photometric_precision_vs_dose.npz`` – global magnitude precision per
   dose as produced by `_compute_photometric_precision`.
+* Each `.png` figure in `analysis/` has a companion array with the same base name and `.npz` extension for reuse in other tools.
 
 Load these files with `numpy.load` for custom plotting or further processing:
 

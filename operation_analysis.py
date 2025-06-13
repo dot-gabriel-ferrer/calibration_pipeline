@@ -23,7 +23,7 @@ the relationship between radiation dose or level and detected outliers.
 """
 
 def _parse_rads(dirname: str) -> Optional[float]:
-    match = re.search(r"([0-9]+(?:\.[0-9]+)?)kRads", dirname)
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)kR(?:ads)?", dirname, re.IGNORECASE)
     if match:
         try:
             return float(match.group(1))
