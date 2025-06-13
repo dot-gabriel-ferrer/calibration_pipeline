@@ -1089,6 +1089,120 @@ def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
         pd.DataFrame(rows).to_csv(os.path.join(outdir, "dose_model.csv"), index=False)
 
 
+def _fit_dose_rate_response(summary: pd.DataFrame, outdir: str) -> None:
+    """Fit MEAN and STD as linear functions of dose and dose rate.
+
+    The model has the form::
+
+        MEAN = a0 + a1 * DOSE + a2 * DOSE_RATE
+        STD  = b0 + b1 * DOSE + b2 * DOSE_RATE
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        Table produced by :func:`main` containing ``MEAN``, ``STD``, ``DOSE`` and
+        ``DOSE_RATE`` columns for each calibration group.
+    outdir : str
+        Directory where the CSV and plots will be written.
+    """
+
+    if "DOSE_RATE" not in summary.columns:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Dose rate column missing; skipping dose-rate response fit")
+        return
+
+    df = summary.dropna(subset=["DOSE_RATE"])
+    df = df[df["STAGE"].isin({"radiating", "during"})]
+    if df.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No valid data for dose-rate response fit")
+        return
+
+    os.makedirs(outdir, exist_ok=True)
+    rows: list[dict[str, float]] = []
+
+    for cal in df["CALTYPE"].unique():
+        cal_df = df[df["CALTYPE"] == cal]
+
+        if cal == "DARK":
+            exp_values = list(sorted(cal_df["EXPTIME"].dropna().unique()))
+            groups = [(exp, cal_df[np.isclose(cal_df["EXPTIME"], exp)]) for exp in exp_values]
+            if cal_df["EXPTIME"].isna().any():
+                groups.append((None, cal_df[cal_df["EXPTIME"].isna()]))
+        else:
+            groups = [(None, cal_df)]
+
+        for exp, sub in groups:
+            if len(sub) < 3:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Not enough points to fit dose-rate response for %s exp %s",
+                        cal,
+                        exp,
+                    )
+                continue
+
+            X = np.stack([
+                np.ones(len(sub)),
+                sub["DOSE"].to_numpy(float),
+                sub["DOSE_RATE"].to_numpy(float),
+            ],
+                axis=1,
+            )
+
+            y_mean = sub["MEAN"].to_numpy(float)
+            y_std = sub["STD"].to_numpy(float)
+
+            a_coeff, _, _, _ = np.linalg.lstsq(X, y_mean, rcond=None)
+            b_coeff, _, _, _ = np.linalg.lstsq(X, y_std, rcond=None)
+
+            row = {
+                "CALTYPE": cal,
+                "A0": float(a_coeff[0]),
+                "A1": float(a_coeff[1]),
+                "A2": float(a_coeff[2]),
+                "B0": float(b_coeff[0]),
+                "B1": float(b_coeff[1]),
+                "B2": float(b_coeff[2]),
+            }
+            if exp is not None:
+                row["EXPTIME"] = float(exp)
+            rows.append(row)
+
+            pred_mean = X @ a_coeff
+            pred_std = X @ b_coeff
+
+            fig, (ax_m, ax_s) = plt.subplots(1, 2, figsize=(8, 4))
+            ax_m.scatter(pred_mean, y_mean, label="mean")
+            ax_m.plot([y_mean.min(), y_mean.max()], [y_mean.min(), y_mean.max()], "C1--")
+            ax_m.set_xlabel("Predicted MEAN")
+            ax_m.set_ylabel("Measured MEAN")
+            ax_m.grid(True, ls="--", alpha=0.5)
+
+            ax_s.scatter(pred_std, y_std, label="std", color="C2")
+            ax_s.plot([y_std.min(), y_std.max()], [y_std.min(), y_std.max()], "C1--")
+            ax_s.set_xlabel("Predicted STD")
+            ax_s.set_ylabel("Measured STD")
+            ax_s.grid(True, ls="--", alpha=0.5)
+
+            title = f"{cal} dose-rate response"
+            if exp is not None:
+                title += f" E={exp:g}s"
+            fig.suptitle(title)
+            fig.tight_layout()
+
+            fname = f"dose_rate_model_{cal.lower()}"
+            if exp is not None:
+                fname += f"_E{str(exp).replace('.', 'p')}s"
+            fig.savefig(os.path.join(outdir, fname + ".png"))
+            plt.close(fig)
+
+    if rows:
+        pd.DataFrame(rows).to_csv(
+            os.path.join(outdir, "dose_rate_model.csv"), index=False
+        )
+
+
 def _fit_base_level_trend(summary: pd.DataFrame, outdir: str) -> None:
     """Fit a linear model of mean bias/dark level vs dose.
 
@@ -1654,6 +1768,7 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
 
     pix_df = _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
     _compare_stage_differences(summary, master_dir, os.path.join(output_dir, "analysis"))
+    _fit_dose_rate_response(summary, os.path.join(output_dir, "analysis"))
     _fit_dose_response(summary, os.path.join(output_dir, "analysis"))
     _fit_base_level_trend(summary, os.path.join(output_dir, "analysis"))
     _stage_base_level_diff(summary, os.path.join(output_dir, "analysis"))

@@ -20,6 +20,7 @@ from dose_analysis import (
     _plot_bias_dark_error,
     _estimate_dose_rate,
     _plot_dose_rate_effect,
+    _fit_dose_rate_response,
 )
 
 
@@ -549,4 +550,34 @@ def test_dose_rate_full_pipeline(tmp_path):
             "intercept_std_ir",
         ]:
             assert key in data
+
+
+def test_fit_dose_rate_response_coefficients(tmp_path, monkeypatch):
+    summary = pd.DataFrame([
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 0.0, "DOSE_RATE": 0.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.5},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "DOSE_RATE": 0.0, "EXPTIME": 1.0, "MEAN": 3.5, "STD": 0.55},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 0.0, "DOSE_RATE": 2.0, "EXPTIME": 1.0, "MEAN": 2.4, "STD": 0.7},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "DOSE_RATE": 2.0, "EXPTIME": 1.0, "MEAN": 3.9, "STD": 0.75},
+    ])
+
+    saved = []
+
+    def fake_savefig(self, path, *a, **k):
+        saved.append(os.path.basename(path))
+
+    monkeypatch.setattr("matplotlib.figure.Figure.savefig", fake_savefig)
+
+    _fit_dose_rate_response(summary, tmp_path)
+
+    csv_path = tmp_path / "dose_rate_model.csv"
+    assert csv_path.is_file()
+    df = pd.read_csv(csv_path)
+    row = df.iloc[0]
+    assert np.isclose(row["A0"], 2.0)
+    assert np.isclose(row["A1"], 1.5)
+    assert np.isclose(row["A2"], 0.2)
+    assert np.isclose(row["B0"], 0.5)
+    assert np.isclose(row["B1"], 0.05)
+    assert np.isclose(row["B2"], 0.1)
+    assert any("dose_rate_model" in s for s in saved)
 
