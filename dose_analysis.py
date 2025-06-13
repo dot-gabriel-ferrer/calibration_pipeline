@@ -655,6 +655,64 @@ def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
         pd.DataFrame(rows).to_csv(os.path.join(outdir, "dose_model.csv"), index=False)
 
 
+def _fit_base_level_trend(summary: pd.DataFrame, outdir: str) -> None:
+    """Fit a linear model of mean bias/dark level vs dose.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        Output table from :func:`main` with at least the ``STAGE``, ``CALTYPE``,
+        ``DOSE`` and ``MEAN`` columns.
+    outdir : str
+        Directory where the CSV and plots will be stored.
+    """
+
+    df = summary[summary["STAGE"] == "radiating"]
+    if df.empty:
+        return
+
+    os.makedirs(outdir, exist_ok=True)
+    rows: list[dict[str, float]] = []
+
+    for cal in ("BIAS", "DARK"):
+        cal_df = df[df["CALTYPE"] == cal]
+        if cal_df.empty:
+            continue
+        grouped = cal_df.groupby("DOSE")["MEAN"].mean().reset_index()
+        if len(grouped) < 2:
+            continue
+
+        x = grouped["DOSE"].astype(float)
+        y = grouped["MEAN"].astype(float)
+        coeff = np.polyfit(x, y, 1)
+
+        rows.append(
+            {
+                "CALTYPE": cal,
+                "SLOPE": float(coeff[0]),
+                "INTERCEPT": float(coeff[1]),
+            }
+        )
+
+        fig, ax = plt.subplots()
+        ax.scatter(x, y, label="mean")
+        xfit = np.linspace(float(x.min()), float(x.max()), 100)
+        ax.plot(xfit, coeff[0] * xfit + coeff[1], color="C1", label="fit")
+        ax.set_xlabel("Dose [kRad]")
+        ax.set_ylabel("Mean ADU")
+        ax.set_title(f"{cal} mean vs dose")
+        ax.grid(True, ls="--", alpha=0.5)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(os.path.join(outdir, f"base_level_trend_{cal.lower()}.png"))
+        plt.close(fig)
+
+    if rows:
+        pd.DataFrame(rows).to_csv(
+            os.path.join(outdir, "base_level_trend.csv"), index=False
+        )
+
+
 def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     """Compute dynamic range and noise for each radiation dose.
 
@@ -789,6 +847,7 @@ def main(index_csv: str, output_dir: str) -> None:
     pix_df = _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
     _compare_stage_differences(summary, master_dir, os.path.join(output_dir, "analysis"))
     _fit_dose_response(summary, os.path.join(output_dir, "analysis"))
+    _fit_base_level_trend(summary, os.path.join(output_dir, "analysis"))
     _dynamic_range_analysis(summary, os.path.join(output_dir, "analysis"))
 
     precision_df = _compute_photometric_precision(summary)

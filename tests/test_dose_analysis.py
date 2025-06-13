@@ -11,6 +11,7 @@ from dose_analysis import (
     _plot_photometric_precision,
     _save_plot,
     _fit_dose_response,
+    _fit_base_level_trend,
     _compare_stage_differences,
     _pixel_precision_analysis,
     _dynamic_range_analysis,
@@ -213,5 +214,29 @@ def test_dynamic_range_analysis_outputs(tmp_path):
     assert np.isclose(row["DARK_MEAN"], 5.0)
     assert np.isclose(row["DR_16"], 65536 - 15.0)
     assert np.isclose(row["NOISE_ADU"], expected_noise)
+
+
+def test_fit_base_level_trend_outputs(tmp_path, monkeypatch):
+    summary = pd.DataFrame([
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 12.0, "STD": 0.1},
+    ])
+
+    saved = []
+
+    def fake_savefig(self, path, *a, **k):
+        saved.append(os.path.basename(path))
+
+    monkeypatch.setattr("matplotlib.figure.Figure.savefig", fake_savefig)
+
+    _fit_base_level_trend(summary, tmp_path)
+
+    assert (tmp_path / "base_level_trend.csv").is_file()
+    assert sorted(saved) == [
+        "base_level_trend_bias.png",
+        "base_level_trend_dark.png",
+    ]
 
 
