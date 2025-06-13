@@ -713,6 +713,80 @@ def _fit_base_level_trend(summary: pd.DataFrame, outdir: str) -> None:
         )
 
 
+def _stage_base_level_diff(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
+    """Compare pre/post base levels with first/last irradiation values.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        Table from :func:`main` with at least ``STAGE``, ``CALTYPE``, ``DOSE``
+        and ``MEAN`` columns.
+    outdir : str
+        Directory for the plot and saved arrays.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Table with the computed differences.  Empty if the required data is
+        missing.
+    """
+
+    rad = summary[summary["STAGE"] == "radiating"]
+    pre = summary[summary["STAGE"] == "pre"]
+    post = summary[summary["STAGE"] == "post"]
+    if rad.empty:
+        return pd.DataFrame()
+
+    min_d = float(rad["DOSE"].min())
+    max_d = float(rad["DOSE"].max())
+
+    os.makedirs(outdir, exist_ok=True)
+
+    rows: list[dict[str, float]] = []
+    diff_bias = [np.nan, np.nan]
+    diff_dark = [np.nan, np.nan]
+
+    for cal, diffs in (("BIAS", diff_bias), ("DARK", diff_dark)):
+        r_first = rad[(rad["CALTYPE"] == cal) & (rad["DOSE"] == min_d)]
+        r_last = rad[(rad["CALTYPE"] == cal) & (rad["DOSE"] == max_d)]
+        p_pre = pre[pre["CALTYPE"] == cal]
+        p_post = post[post["CALTYPE"] == cal]
+
+        if not r_first.empty and not p_pre.empty:
+            diff = float(r_first["MEAN"].mean() - p_pre["MEAN"].mean())
+            diffs[0] = diff
+            rows.append({"CALTYPE": cal, "CMP": "first_pre", "DOSE": min_d, "DIFF": diff})
+
+        if not r_last.empty and not p_post.empty:
+            diff = float(r_last["MEAN"].mean() - p_post["MEAN"].mean())
+            diffs[1] = diff
+            rows.append({"CALTYPE": cal, "CMP": "last_post", "DOSE": max_d, "DIFF": diff})
+
+        valid = [d for d in diffs if np.isfinite(d)]
+        doses = [min_d if np.isfinite(diffs[0]) else None, max_d if np.isfinite(diffs[1]) else None]
+        plot_x = [d for d in doses if d is not None]
+        plot_y = valid
+        if plot_x:
+            fig, ax = plt.subplots()
+            ax.plot(plot_x, plot_y, "o-")
+            ax.set_xlabel("Dose [kRad]")
+            ax.set_ylabel("Base level difference [ADU]")
+            ax.set_title(f"{cal} base level shift")
+            ax.grid(True, ls="--", alpha=0.5)
+            fig.tight_layout()
+            fig.savefig(os.path.join(outdir, f"stage_base_diff_{cal.lower()}.png"))
+            plt.close(fig)
+
+    np.savez(
+        os.path.join(outdir, "stage_base_diff.npz"),
+        dose=np.array([min_d, max_d], dtype=float),
+        bias_diff=np.array(diff_bias, dtype=float),
+        dark_diff=np.array(diff_dark, dtype=float),
+    )
+
+    return pd.DataFrame(rows)
+
+
 def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     """Compute dynamic range and noise for each radiation dose.
 
@@ -848,6 +922,7 @@ def main(index_csv: str, output_dir: str) -> None:
     _compare_stage_differences(summary, master_dir, os.path.join(output_dir, "analysis"))
     _fit_dose_response(summary, os.path.join(output_dir, "analysis"))
     _fit_base_level_trend(summary, os.path.join(output_dir, "analysis"))
+    _stage_base_level_diff(summary, os.path.join(output_dir, "analysis"))
     _dynamic_range_analysis(summary, os.path.join(output_dir, "analysis"))
 
     precision_df = _compute_photometric_precision(summary)
