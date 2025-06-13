@@ -218,6 +218,9 @@ def diff_heatmap(ref_master: np.ndarray, target_master: np.ndarray, outpath: str
     plt.savefig(outpath)
     plt.close()
 
+    # Save the difference array alongside the PNG
+    np.savez_compressed(os.path.splitext(outpath)[0] + ".npz", diff=diff)
+
 
 # -----------------------------------------------------------------------------
 # Command line interface

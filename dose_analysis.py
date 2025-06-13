@@ -177,6 +177,7 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
 
             fig, ax = plt.subplots()
             stats_lines = []
+            plot_data = {}
             for stage in ("pre", "radiating", "post"):
                 stage_df = sub[sub["STAGE"] == stage]
                 if stage_df.empty:
@@ -192,6 +193,9 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
                 ax.errorbar(x, y, yerr=e, fmt=fmt, label=stage)
                 ax.fill_between(x, y - e, y + e, alpha=0.2)
                 stats_lines.append(f"{stage}: \u03BC={y.mean():.1f}, \u03C3={e.mean():.1f}")
+                plot_data[f"{stage}_dose"] = x.to_numpy()
+                plot_data[f"{stage}_mean"] = y.to_numpy()
+                plot_data[f"{stage}_std"] = e.to_numpy()
 
             ax.set_xlabel("Dose [kRad]")
             ax.set_ylabel("Mean ADU")
@@ -208,8 +212,12 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
             if exp is not None:
                 fname += f"_E{str(exp).replace('.', 'p')}s"
             fname += ".png"
-            fig.savefig(os.path.join(outdir, fname))
+            out_png = os.path.join(outdir, fname)
+            fig.savefig(out_png)
             plt.close(fig)
+
+            # Save the arrays used for the plot
+            np.savez_compressed(os.path.splitext(out_png)[0] + ".npz", **plot_data)
 
 
 def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
@@ -275,8 +283,18 @@ def _plot_photometric_precision(df: pd.DataFrame, outdir: str) -> None:
     )
     fig.text(1.02, 0.5, stats, va="center")
     fig.tight_layout()
-    fig.savefig(os.path.join(outdir, "photometric_precision_vs_dose.png"))
+    out_png = os.path.join(outdir, "photometric_precision_vs_dose.png")
+    fig.savefig(out_png)
     plt.close(fig)
+
+    # Save arrays for further analysis
+    data = {
+        "dose": df["DOSE"].to_numpy(float),
+        "mag_err": df["MAG_ERR"].to_numpy(float),
+    }
+    if "MAG_ERR_STD" in df:
+        data["mag_err_std"] = df["MAG_ERR_STD"].to_numpy(float)
+    np.savez_compressed(os.path.splitext(out_png)[0] + ".npz", **data)
 
 
 def _plot_error_vs_dose(df: pd.DataFrame, outdir: str) -> None:
@@ -304,8 +322,16 @@ def _plot_error_vs_dose(df: pd.DataFrame, outdir: str) -> None:
     ax_m.set_title("Magnitude error vs dose")
     ax_m.grid(True, ls="--", alpha=0.5)
     fig_m.tight_layout()
-    fig_m.savefig(os.path.join(outdir, "mag_err_vs_dose.png"))
+    out_m = os.path.join(outdir, "mag_err_vs_dose.png")
+    fig_m.savefig(out_m)
     plt.close(fig_m)
+
+    np.savez_compressed(
+        os.path.splitext(out_m)[0] + ".npz",
+        dose=df["DOSE"].to_numpy(float),
+        mag_mean=df["MAG_MEAN"].to_numpy(float),
+        mag_std=df.get("MAG_STD", pd.Series()).to_numpy(float) if "MAG_STD" in df else np.empty(0),
+    )
 
     fig_a, ax_a = plt.subplots()
     ax_a.errorbar(
@@ -325,8 +351,16 @@ def _plot_error_vs_dose(df: pd.DataFrame, outdir: str) -> None:
     ax_a.set_title("ADU error vs dose")
     ax_a.grid(True, ls="--", alpha=0.5)
     fig_a.tight_layout()
-    fig_a.savefig(os.path.join(outdir, "adu_err_vs_dose.png"))
+    out_a = os.path.join(outdir, "adu_err_vs_dose.png")
+    fig_a.savefig(out_a)
     plt.close(fig_a)
+
+    np.savez_compressed(
+        os.path.splitext(out_a)[0] + ".npz",
+        dose=df["DOSE"].to_numpy(float),
+        adu_mean=df["ADU_MEAN"].to_numpy(float),
+        adu_std=df.get("ADU_STD", pd.Series()).to_numpy(float) if "ADU_STD" in df else np.empty(0),
+    )
 
 
 def _pixel_precision_analysis(
