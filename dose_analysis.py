@@ -175,73 +175,79 @@ def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None],
 
 
 def _estimate_dose_rate(df: pd.DataFrame) -> pd.DataFrame:
-    """Return dose rate for each file group.
+    """Return dose rate statistics for each file group.
 
-    The function groups ``df`` using :func:`_group_paths` and reads the
-    ``TIMESTAMP`` header keyword from every FITS file within each group.
-    For ``radiating`` groups the dose rate is computed as::
+    The function reads ``TIMESTAMP`` from every FITS file, sorts all files by
+    timestamp and computes the instantaneous dose rate between consecutive
+    frames::
 
-        (current_dose - previous_dose) / (t_last - t_first)
+        rate = (dose_i - dose_{i-1}) / (ts_i - ts_{i-1})
 
-    where ``previous_dose`` is the dose of the preceding irradiation group
-    (or ``0`` for the first one).  Non irradiating groups receive a ``NaN``
-    dose rate.
+    where ``dose_i`` is the dose encoded in the current filename and
+    ``ts_i`` the corresponding timestamp.  Rates are aggregated by
+    ``(STAGE, CALTYPE, DOSE, EXPTIME)`` yielding the mean dose rate
+    (``DOSE_RATE``) and its standard deviation (``DOSE_RATE_STD``).  Groups
+    without valid timestamps receive ``NaN`` values.
     """
 
     groups = _group_paths(df)
 
-    irrad_stages = {"radiating", "during"}
-    irrad_doses = sorted({k[2] for k in groups if k[0] in irrad_stages})
-    prev_map: Dict[float, float] = {}
-    prev = 0.0
-    for d in irrad_doses:
-        prev_map[d] = prev
-        prev = d
-
-    rows: List[dict[str, float]] = []
-
-    for key, paths in groups.items():
-        stage, cal, dose, exp = key
-        rate = float("nan")
-        if stage in irrad_stages:
-            ts_values: List[float] = []
-            for p in paths:
-                try:
-                    hdr = fits.getheader(p)
-                    ts = hdr.get("TIMESTAMP")
-                    if ts is None:
-                        ts = hdr.get("HIERARCH TIMESTAMP")
-                    if ts is not None:
-                        ts = float(ts)
-                        if np.isfinite(ts):
-                            ts_values.append(ts)
-                except Exception:
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info("Failed to read TIMESTAMP from %s", p)
-            if len(ts_values) >= 2:
-                dt = max(ts_values) - min(ts_values)
-                dd = dose - prev_map.get(dose, 0.0)
-                if dt > 0:
-                    rate = dd / dt
-            else:
+    file_rows: List[dict[str, float]] = []
+    for (stage, cal, dose, exp), paths in groups.items():
+        for p in paths:
+            ts = float("nan")
+            try:
+                hdr = fits.getheader(p)
+                ts_val = hdr.get("TIMESTAMP")
+                if ts_val is None:
+                    ts_val = hdr.get("HIERARCH TIMESTAMP")
+                if ts_val is not None:
+                    ts = float(ts_val)
+            except Exception:
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Insufficient timestamps for dose rate: stage=%s dose=%s",
-                        stage,
-                        dose,
-                    )
+                    logger.info("Failed to read TIMESTAMP from %s", p)
+            file_rows.append(
+                {
+                    "STAGE": stage,
+                    "CALTYPE": cal,
+                    "DOSE": dose,
+                    "EXPTIME": exp,
+                    "TS": ts,
+                }
+            )
 
-        rows.append(
+    df_ts = pd.DataFrame(file_rows)
+    df_ts = df_ts.dropna(subset=["TS"])
+    df_ts = df_ts.sort_values("TS")
+
+    df_ts["RATE"] = (df_ts["DOSE"].diff()) / (df_ts["TS"].diff())
+    df_rates = df_ts.dropna(subset=["RATE"])
+
+    agg = (
+        df_rates.groupby(["STAGE", "CALTYPE", "DOSE", "EXPTIME"])["RATE"]
+        .agg(["mean", "std"])
+        .reset_index()
+    )
+
+    result = pd.DataFrame(
+        [
             {
-                "STAGE": stage,
-                "CALTYPE": cal,
-                "DOSE": dose,
-                "EXPTIME": exp,
-                "DOSE_RATE": rate,
+                "STAGE": k[0],
+                "CALTYPE": k[1],
+                "DOSE": k[2],
+                "EXPTIME": k[3],
             }
-        )
+            for k in groups.keys()
+        ]
+    )
+    result = result.merge(
+        agg,
+        on=["STAGE", "CALTYPE", "DOSE", "EXPTIME"],
+        how="left",
+    )
+    result = result.rename(columns={"mean": "DOSE_RATE", "std": "DOSE_RATE_STD"})
 
-    return pd.DataFrame(rows)
+    return result
 
 
 def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
@@ -1637,6 +1643,7 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
         if logger.isEnabledFor(logging.INFO):
             logger.info("Dose rate estimation failed for all groups")
         summary["DOSE_RATE"] = np.nan
+        summary["DOSE_RATE_STD"] = np.nan
     summary_csv = os.path.join(output_dir, "dose_summary.csv")
     summary.to_csv(summary_csv, index=False)
     logger.info("Summary written to %s", summary_csv)
