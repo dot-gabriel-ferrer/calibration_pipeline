@@ -654,6 +654,100 @@ def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
     if rows:
         pd.DataFrame(rows).to_csv(os.path.join(outdir, "dose_model.csv"), index=False)
 
+
+def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
+    """Compute dynamic range and noise for each radiation dose.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        Output of the main processing loop with at least the ``STAGE``,
+        ``CALTYPE``, ``DOSE``, ``MEAN`` and ``STD`` columns.
+    outdir : str
+        Destination directory for the plot and ``.npz`` arrays.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Table with the computed statistics per dose.  Empty if the required
+        data is missing.
+    """
+
+    df = summary[summary["STAGE"] == "during"]
+    bias = df[df["CALTYPE"] == "BIAS"]
+    dark = df[df["CALTYPE"] == "DARK"]
+    doses = sorted(set(bias["DOSE"]) & set(dark["DOSE"]))
+
+    rows: list[dict[str, float]] = []
+    if not doses:
+        return pd.DataFrame()
+
+    os.makedirs(outdir, exist_ok=True)
+
+    dr16_vals = []
+    dr12_vals = []
+    noise_vals = []
+    noise_mag_vals = []
+
+    for d in doses:
+        b_rows = bias[bias["DOSE"] == d]
+        d_rows = dark[dark["DOSE"] == d]
+        bias_mean = float(b_rows["MEAN"].mean())
+        dark_mean = float(d_rows["MEAN"].mean())
+        bias_std = float(b_rows["STD"].mean())
+        dark_std = float(d_rows["STD"].mean())
+
+        dr16 = 65536.0 - bias_mean - dark_mean
+        dr12 = 4096.0 - bias_mean - dark_mean
+        noise = float(np.sqrt(bias_std ** 2 + dark_std ** 2))
+        noise_mag = float(1.0857 * noise / dr16) if dr16 > 0 else float("inf")
+
+        dr16_vals.append(dr16)
+        dr12_vals.append(dr12)
+        noise_vals.append(noise)
+        noise_mag_vals.append(noise_mag)
+
+        rows.append(
+            {
+                "DOSE": float(d),
+                "BIAS_MEAN": bias_mean,
+                "DARK_MEAN": dark_mean,
+                "DR_16": dr16,
+                "DR_12": dr12,
+                "NOISE_ADU": noise,
+                "NOISE_MAG": noise_mag,
+            }
+        )
+
+    # Save arrays for further inspection
+    np.savez(
+        os.path.join(outdir, "dynamic_range.npz"),
+        dose=np.array(doses, dtype=float),
+        bias_mean=np.array([r["BIAS_MEAN"] for r in rows], dtype=float),
+        dark_mean=np.array([r["DARK_MEAN"] for r in rows], dtype=float),
+        dynamic_range_16=np.array(dr16_vals, dtype=float),
+        dynamic_range_12=np.array(dr12_vals, dtype=float),
+        noise_adu=np.array(noise_vals, dtype=float),
+        noise_mag=np.array(noise_mag_vals, dtype=float),
+    )
+
+    # Plot dynamic range vs dose
+    fig, ax = plt.subplots()
+    ax.plot(doses, dr16_vals, "o-", label="16-bit")
+    ax.plot(doses, dr12_vals, "s-", label="12-bit")
+    ax.axhline(65536, color="C2", ls="--", label="16-bit max")
+    ax.axhline(4096, color="C3", ls="--", label="12-bit max")
+    ax.set_xlabel("Dose [kRad]")
+    ax.set_ylabel("Dynamic range [ADU]")
+    ax.set_title("Dynamic range vs dose")
+    ax.legend()
+    ax.grid(True, ls="--", alpha=0.5)
+    fig.tight_layout()
+    fig.savefig(os.path.join(outdir, "dynamic_range_vs_dose.png"))
+    plt.close(fig)
+
+    return pd.DataFrame(rows)
+
 def main(index_csv: str, output_dir: str) -> None:
     df = pd.read_csv(index_csv)
     df = df[df.get("BADFITS", False) == False]
@@ -695,6 +789,7 @@ def main(index_csv: str, output_dir: str) -> None:
     pix_df = _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
     _compare_stage_differences(summary, master_dir, os.path.join(output_dir, "analysis"))
     _fit_dose_response(summary, os.path.join(output_dir, "analysis"))
+    _dynamic_range_analysis(summary, os.path.join(output_dir, "analysis"))
 
     precision_df = _compute_photometric_precision(summary)
     precision_csv = os.path.join(output_dir, "photometric_precision.csv")
