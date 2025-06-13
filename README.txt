@@ -1,4 +1,19 @@
-This README summarises the radiation dose analysis utilities.
+This README summarises the radiation dose analysis utilities.  Invoke the
+script as
+
+```
+python dose_analysis.py index.csv output_dir/
+```
+
+The results are grouped inside ``output_dir`` in several subdirectories:
+
+```
+output_dir/
+├── analysis/          # trend fits and relative precision arrays
+├── masters/           # generated master calibration frames
+├── pixel_precision/   # per-pixel error maps and statistics
+└── plots/             # mean signal and precision figures
+```
 
 Noise estimation
 ----------------
@@ -45,6 +60,28 @@ lines are shown in `base_level_trend_bias.png` and
 `base_level_trend_dark.png`. The slope column indicates how many ADU per kRad
 the detector baseline rises during irradiation.
 
+Relative photometric precision
+------------------------------
+The script now measures how the expected magnitude error and noise change
+relative to the **pre** stage.  The per-dose values from the ``pre`` stage are
+used as a reference so that zero represents the initial detector performance.
+Four figures are produced inside ``analysis/``:
+
+``relative_noise_vs_dose_16.png``
+    ADU noise difference for the 16‑bit scale.
+``relative_noise_vs_dose_12.png``
+    ADU noise difference for the 12‑bit scale.
+``relative_mag_err_vs_dose_16.png``
+    Magnitude error change for the 16‑bit scale.
+``relative_mag_err_vs_dose_12.png``
+    Magnitude error change for the 12‑bit scale.
+
+The raw arrays plotted in these figures are saved as ``.npz`` files with the
+same base names, and a combined table ``relative_precision.npz`` contains all
+stages for custom processing.  If post‑irradiation data are available, an extra
+``pre_vs_post_relative_precision.png`` compares the pre and post values and its
+data are stored in ``pre_vs_post_relative_precision.npz``.
+
 Saved `.npz` files
 ------------------
 Several helper arrays are stored in the analysis directory:
@@ -55,6 +92,12 @@ Several helper arrays are stored in the analysis directory:
   `_stage_base_level_diff`.
   The `dynamic_range.npz` file now also stores the baseline levels in both
   16‑bit and 12‑bit units for every dose.
+* `relative_precision.npz` – ADU noise and magnitude error changes relative to
+  the pre stage from `_relative_precision_analysis`.
+  ``pre_vs_post_relative_precision.npz`` compares the average pre and post
+  precision when both stages are available.
+* ``plots/photometric_precision_vs_dose.npz`` – global magnitude precision per
+  dose as produced by `_compute_photometric_precision`.
 
 Load these files with `numpy.load` for custom plotting or further processing:
 
