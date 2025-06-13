@@ -13,6 +13,7 @@ from dose_analysis import (
     _fit_dose_response,
     _compare_stage_differences,
     _pixel_precision_analysis,
+    _dynamic_range_analysis,
 )
 
 
@@ -185,4 +186,32 @@ def test_compare_stage_differences_generates_heatmaps(tmp_path):
     assert (out_dir / "bias_first_vs_pre_log.png").is_file()
     assert (out_dir / "bias_post_vs_last.png").is_file()
     assert (out_dir / "bias_post_vs_last_log.png").is_file()
+
+
+def test_dynamic_range_analysis_outputs(tmp_path):
+    summary = pd.DataFrame([
+        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 0.0, "MEAN": 10.0, "STD": 1.0},
+        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 5.0, "STD": 2.0},
+    ])
+
+    df = _dynamic_range_analysis(summary, str(tmp_path))
+
+    assert (tmp_path / "dynamic_range_vs_dose.png").is_file()
+    assert (tmp_path / "dynamic_range.npz").is_file()
+    assert set(df.columns) == {
+        "DOSE",
+        "BIAS_MEAN",
+        "DARK_MEAN",
+        "DR_16",
+        "DR_12",
+        "NOISE_ADU",
+        "NOISE_MAG",
+    }
+    row = df.iloc[0]
+    expected_noise = np.sqrt(1.0 ** 2 + 2.0 ** 2)
+    assert np.isclose(row["BIAS_MEAN"], 10.0)
+    assert np.isclose(row["DARK_MEAN"], 5.0)
+    assert np.isclose(row["DR_16"], 65536 - 15.0)
+    assert np.isclose(row["NOISE_ADU"], expected_noise)
+
 
