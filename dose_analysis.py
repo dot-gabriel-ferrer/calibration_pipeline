@@ -18,6 +18,7 @@ import os
 import re
 from collections import defaultdict
 from typing import Dict, Iterable, List, Tuple
+import logging
 
 import numpy as np
 import pandas as pd
@@ -28,6 +29,8 @@ from tqdm import tqdm
 
 from operation_analysis import _parse_rads
 from process_index import _make_mean_master, _parse_temp_exp_from_path
+
+logger = logging.getLogger(__name__)
 
 
 def _dose_from_path(path: str) -> float | None:
@@ -115,6 +118,7 @@ def _stack_stats(paths: List[str]) -> Tuple[np.ndarray, np.ndarray]:
 def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None], List[str]]:
     groups: Dict[Tuple[str, str, float, float | None], List[str]] = defaultdict(list)
     during_doses: List[float] = []
+    irrad_stages = {"radiating", "during"}
     for _, row in tqdm(
         df.iterrows(),
         total=len(df),
@@ -122,7 +126,7 @@ def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None],
         unit="file",
         leave=False,
     ):
-        if row["STAGE"] == "radiating":
+        if row["STAGE"] in irrad_stages:
             d = _dose_from_path(row["PATH"])
             if d is not None:
                 during_doses.append(d)
@@ -167,7 +171,8 @@ def _estimate_dose_rate(df: pd.DataFrame) -> pd.DataFrame:
 
     groups = _group_paths(df)
 
-    irrad_doses = sorted({k[2] for k in groups if k[0] == "radiating"})
+    irrad_stages = {"radiating", "during"}
+    irrad_doses = sorted({k[2] for k in groups if k[0] in irrad_stages})
     prev_map: Dict[float, float] = {}
     prev = 0.0
     for d in irrad_doses:
@@ -179,7 +184,7 @@ def _estimate_dose_rate(df: pd.DataFrame) -> pd.DataFrame:
     for key, paths in groups.items():
         stage, cal, dose, exp = key
         rate = float("nan")
-        if stage == "radiating":
+        if stage in irrad_stages:
             ts_values: List[float] = []
             for p in paths:
                 try:
@@ -295,7 +300,7 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
 
     os.makedirs(outdir, exist_ok=True)
 
-    irrad = summary[summary["STAGE"] == "during"]
+    irrad = summary[summary["STAGE"].isin({"radiating", "during"})]
 
     min_dose = irrad["DOSE"].min() if not irrad.empty else 0.0
     max_dose = irrad["DOSE"].max() if not irrad.empty else 0.0
@@ -327,7 +332,7 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
             if sub.empty:
                 continue
 
-            ir_df = sub[sub["STAGE"] == "during"]
+            ir_df = sub[sub["STAGE"].isin({"radiating", "during"})]
             ni_df = sub[sub["STAGE"].isin(["pre", "post"])]
 
             def _fit(df: pd.DataFrame) -> tuple[float, float]:
@@ -452,8 +457,8 @@ def _plot_dose_rate_effect(summary: pd.DataFrame, outdir: str) -> None:
         if cal_df.empty:
             continue
 
-        ir = cal_df[cal_df["STAGE"] == "radiating"]
-        non = cal_df[cal_df["STAGE"] != "radiating"]
+        ir = cal_df[cal_df["STAGE"].isin({"radiating", "during"})]
+        non = cal_df[~cal_df["STAGE"].isin({"radiating", "during"})]
 
         fig, ax1 = plt.subplots()
         ax2 = ax1.twinx()
@@ -537,7 +542,7 @@ def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
     frame combination at the same radiation dose.
     """
 
-    df = summary[summary["STAGE"] == "radiating"]
+    df = summary[summary["STAGE"].isin({"radiating", "during"})]
     bias = df[df["CALTYPE"] == "BIAS"]
     dark = df[df["CALTYPE"] == "DARK"]
     doses = sorted(set(bias["DOSE"]) & set(dark["DOSE"]))
@@ -675,8 +680,9 @@ def _pixel_precision_analysis(
     groups: Dict[Tuple[str, str, float, float | None], List[str]], outdir: str
 ) -> pd.DataFrame:
     """Generate per-pixel magnitude and ADU error maps for each dose."""
-    bias_groups = {k: v for k, v in groups.items() if k[0] == "radiating" and k[1] == "BIAS"}
-    dark_groups = {k: v for k, v in groups.items() if k[0] == "radiating" and k[1] == "DARK"}
+    irrad_stages = {"radiating", "during"}
+    bias_groups = {k: v for k, v in groups.items() if k[0] in irrad_stages and k[1] == "BIAS"}
+    dark_groups = {k: v for k, v in groups.items() if k[0] in irrad_stages and k[1] == "DARK"}
     doses = sorted(set(k[2] for k in bias_groups) & set(k[2] for k in dark_groups))
     if not doses:
         return
@@ -818,7 +824,7 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
     value with a symmetric colour scale.
     """
     df = summary
-    during = df[df["STAGE"] == "radiating"]
+    during = df[df["STAGE"].isin({"radiating", "during"})]
     pre = df[df["STAGE"] == "pre"]
     post = df[df["STAGE"] == "post"]
     if during.empty:
@@ -938,7 +944,7 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
 
 def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
     """Fit a linear model of mean value vs dose and store coefficients."""
-    df = summary[summary["STAGE"] == "radiating"]
+    df = summary[summary["STAGE"].isin({"radiating", "during"})]
     if df.empty:
         return
     os.makedirs(outdir, exist_ok=True)
@@ -1009,7 +1015,7 @@ def _fit_base_level_trend(summary: pd.DataFrame, outdir: str) -> None:
         Directory where the CSV and plots will be stored.
     """
 
-    df = summary[summary["STAGE"] == "radiating"]
+    df = summary[summary["STAGE"].isin({"radiating", "during"})]
     if df.empty:
         return
 
@@ -1073,7 +1079,7 @@ def _stage_base_level_diff(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
         missing.
     """
 
-    rad = summary[summary["STAGE"] == "radiating"]
+    rad = summary[summary["STAGE"].isin({"radiating", "during"})]
     pre = summary[summary["STAGE"] == "pre"]
     post = summary[summary["STAGE"] == "post"]
     if rad.empty:
@@ -1471,11 +1477,21 @@ def _relative_precision_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataF
 
     return df
 
-def main(index_csv: str, output_dir: str) -> None:
+def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
+    if verbose:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    else:
+        logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+    logger.info("Loading index CSV %s", index_csv)
+
     df = pd.read_csv(index_csv)
     df = df[df.get("BADFITS", False) == False]
 
+    logger.info("Grouping input files")
+    
     groups = _group_paths(df)
+
+    logger.info("Generating master frames")
 
     master_dir = os.path.join(output_dir, "masters")
     os.makedirs(master_dir, exist_ok=True)
@@ -1504,7 +1520,8 @@ def main(index_csv: str, output_dir: str) -> None:
         })
 
     summary = pd.DataFrame.from_records(records)
-
+    logger.info("Estimating dose rates")
+    
     rate_df = _estimate_dose_rate(df)
     if not rate_df.empty:
         summary = summary.merge(
@@ -1514,6 +1531,7 @@ def main(index_csv: str, output_dir: str) -> None:
         summary["DOSE_RATE"] = np.nan
     summary_csv = os.path.join(output_dir, "dose_summary.csv")
     summary.to_csv(summary_csv, index=False)
+    logger.info("Summary written to %s", summary_csv)
 
     _save_plot(summary, os.path.join(output_dir, "plots"))
     _plot_bias_dark_error(summary, os.path.join(output_dir, "plots"))
@@ -1531,11 +1549,13 @@ def main(index_csv: str, output_dir: str) -> None:
     precision_csv = os.path.join(output_dir, "photometric_precision.csv")
     precision_df.to_csv(precision_csv, index=False)
     _plot_photometric_precision(precision_df, os.path.join(output_dir, "plots"))
+    logger.info("Processing finished")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Analyse calibration frames by radiation dose")
     parser.add_argument("index_csv", help="Path to index.csv")
     parser.add_argument("output_dir", help="Directory for results")
+    parser.add_argument("--verbose", action="store_true", help="Enable informational logging")
     args = parser.parse_args()
-    main(args.index_csv, args.output_dir)
+    main(args.index_csv, args.output_dir, args.verbose)
