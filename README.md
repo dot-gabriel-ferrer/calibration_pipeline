@@ -29,6 +29,9 @@ The repository also includes a couple of standalone scripts useful for data expl
   fits a dose-response for dark current at each exposure time and now also
   fits linear base level trends for bias and dark frames. The coefficients are
   written to `analysis/base_level_trend.csv` alongside the corresponding plots.
+  It can also model mean and noise as linear functions of dose and dose rate,
+  saving the parameters in `analysis/dose_rate_model.csv` with diagnostic
+  figures.
   It also compares the first/last irradiation base levels with the pre/post
   values, saving the differences versus dose in `analysis/stage_base_diff.npz`
   and the accompanying figures. Plots of mean signal, photometric precision
@@ -60,6 +63,11 @@ De forma análoga, los gráficos `dose_rate_effect_bias.png` y
 (`DOSE_RATE`). Los ficheros `dose_rate_effect_bias.npz` y
 `dose_rate_effect_dark.npz` contienen las matrices de dosis por segundo y las
 medidas usadas en las figuras.
+Además se ajusta un modelo lineal multivariante
+``MEAN = a0 + a1·DOSE + a2·DOSE_RATE`` y
+``STD = b0 + b1·DOSE + b2·DOSE_RATE`` para predecir el comportamiento
+del sensor en cualquier combinación de dosis y tasa de dosis. Los
+coeficientes se almacenan en `analysis/dose_rate_model.csv`.
 
 ## Installation
 
