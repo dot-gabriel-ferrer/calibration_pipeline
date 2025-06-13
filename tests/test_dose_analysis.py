@@ -215,6 +215,8 @@ def test_dynamic_range_analysis_outputs(tmp_path):
         "NOISE_MAG",
         "RED_16",
         "RED_12",
+        "BASE_16",
+        "BASE_12",
     }
     row = df.iloc[0]
     expected_noise = np.sqrt(1.0 ** 2 + 2.0 ** 2)

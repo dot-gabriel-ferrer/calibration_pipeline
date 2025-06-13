@@ -861,6 +861,8 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     noise_mag_vals = []
     red16_vals = []
     red12_vals = []
+    base16_vals = []
+    base12_vals = []
 
     for d in doses:
         b_rows = bias[bias["DOSE"] == d]
@@ -870,8 +872,11 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
         bias_std = float(b_rows["STD"].mean())
         dark_std = float(d_rows["STD"].mean())
 
-        dr16 = 65536.0 - bias_mean - dark_mean
-        dr12 = 4096.0 - bias_mean - dark_mean
+        base16 = bias_mean + dark_mean
+        base12 = base16 / 16.0
+
+        dr16 = 65536.0 - base16
+        dr12 = 4096.0 - base12
         noise = float(np.sqrt(bias_std ** 2 + dark_std ** 2))
         noise_mag = float(1.0857 * noise / dr16) if dr16 > 0 else float("inf")
 
@@ -881,6 +886,8 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
         noise_mag_vals.append(noise_mag)
         red16_vals.append(100.0 * (65536.0 - dr16) / 65536.0)
         red12_vals.append(100.0 * (4096.0 - dr12) / 4096.0)
+        base16_vals.append(base16)
+        base12_vals.append(base12)
 
         rows.append(
             {
@@ -893,6 +900,8 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
                 "NOISE_MAG": noise_mag,
                 "RED_16": red16_vals[-1],
                 "RED_12": red12_vals[-1],
+                "BASE_16": base16,
+                "BASE_12": base12,
             }
         )
 
@@ -908,6 +917,8 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
         noise_mag=np.array(noise_mag_vals, dtype=float),
         reduction_16=np.array(red16_vals, dtype=float),
         reduction_12=np.array(red12_vals, dtype=float),
+        base_level_16=np.array(base16_vals, dtype=float),
+        base_level_12=np.array(base12_vals, dtype=float),
     )
 
     dr_err = np.array(noise_vals, dtype=float)
@@ -949,6 +960,52 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     fig12.tight_layout()
     fig12.savefig(os.path.join(outdir, "dynamic_range_vs_dose_12.png"))
     plt.close(fig12)
+
+    # Baseline (bias + dark) vs dose in 16-bit units
+    fig_b16, ax_b16 = plt.subplots()
+    ax_b16.plot(doses, base16_vals, "o-", label="baseline")
+    ax_b16.axhline(65536, color="C2", ls="--", label="max counts")
+    ax_b16.set_xlabel("Dose [kRad]")
+    ax_b16.set_ylabel("ADU (16 bit)")
+    ax_b16.set_title("Baseline level vs dose (16-bit)")
+    ax_b16.grid(True, ls="--", alpha=0.5)
+    ax_b16.legend()
+    fig_b16.tight_layout()
+    fig_b16.savefig(os.path.join(outdir, "baseline_vs_dose_16.png"))
+    plt.close(fig_b16)
+
+    # Baseline vs dose in 12-bit units
+    fig_b12, ax_b12 = plt.subplots()
+    ax_b12.plot(doses, base12_vals, "o-", label="baseline")
+    ax_b12.axhline(4096, color="C3", ls="--", label="max counts")
+    ax_b12.set_xlabel("Dose [kRad]")
+    ax_b12.set_ylabel("ADU (12 bit)")
+    ax_b12.set_title("Baseline level vs dose (12-bit)")
+    ax_b12.grid(True, ls="--", alpha=0.5)
+    ax_b12.legend()
+    fig_b12.tight_layout()
+    fig_b12.savefig(os.path.join(outdir, "baseline_vs_dose_12.png"))
+    plt.close(fig_b12)
+
+    # Magnitude error and limit vs dose
+    mag_lim_vals = -2.5 * np.log10(np.maximum(dr16_vals, 1e-9) / 65536.0)
+    mag_lim_err = (2.5 / np.log(10)) * (np.array(noise_vals) / np.maximum(dr16_vals, 1e-9))
+
+    fig_mag, (ax_err, ax_lim) = plt.subplots(2, 1, sharex=True)
+    ax_err.plot(doses, noise_mag_vals, "o-")
+    ax_err.set_ylabel("Mag error [mag]")
+    ax_err.set_title("Magnitude error vs dose")
+    ax_err.grid(True, ls="--", alpha=0.5)
+
+    ax_lim.errorbar(doses, mag_lim_vals, yerr=mag_lim_err, fmt="o-")
+    ax_lim.set_xlabel("Dose [kRad]")
+    ax_lim.set_ylabel("Mag limit loss [mag]")
+    ax_lim.set_title("Magnitude limit vs dose")
+    ax_lim.grid(True, ls="--", alpha=0.5)
+
+    fig_mag.tight_layout()
+    fig_mag.savefig(os.path.join(outdir, "magnitude_vs_dose.png"))
+    plt.close(fig_mag)
 
     return pd.DataFrame(rows)
 
