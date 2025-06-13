@@ -402,3 +402,61 @@ def test_estimate_dose_rate_and_plot(tmp_path):
     assert png.is_file()
     assert npz.is_file()
 
+
+def test_dose_rate_full_pipeline(tmp_path):
+    """Estimate dose rate and generate plots for bias and dark."""
+    d1 = tmp_path / "1kRads"
+    d2 = tmp_path / "2kRads"
+    d1.mkdir()
+    d2.mkdir()
+
+    paths = []
+    caltypes = []
+    stages = []
+    for dose, ddir, start in [(1.0, d1, 0), (2.0, d2, 20)]:
+        for cal in ["BIAS", "DARK"]:
+            f1 = ddir / f"{cal.lower()}_1.fits"
+            f2 = ddir / f"{cal.lower()}_2.fits"
+            _make_fits(f1, 1, ts=start)
+            _make_fits(f2, 1, ts=start + (10 if dose == 1.0 else 20))
+            paths.extend([f1, f2])
+            caltypes.extend([cal, cal])
+            stages.extend(["radiating", "radiating"])
+
+    df = pd.DataFrame({
+        "PATH": [str(p) for p in paths],
+        "CALTYPE": caltypes,
+        "STAGE": stages,
+        "VACUUM": ["air"] * len(paths),
+        "TEMP": [10.0] * len(paths),
+        "ZEROFRACTION": [0.0] * len(paths),
+        "BADFITS": [False] * len(paths),
+    })
+
+    rate_df = _estimate_dose_rate(df)
+    for dose, expected in [(1.0, 0.1), (2.0, 0.05)]:
+        vals = rate_df[rate_df["DOSE"] == dose]["DOSE_RATE"].unique()
+        assert len(vals) == 1
+        assert np.isclose(vals[0], expected)
+
+    summary = pd.DataFrame([
+        {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.2},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 3.0, "STD": 0.3},
+        {"STAGE": "post", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 4.0, "STD": 0.4},
+        {"STAGE": "pre", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 1.0},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 11.0, "STD": 1.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 12.0, "STD": 1.2},
+        {"STAGE": "post", "CALTYPE": "DARK", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 13.0, "STD": 1.3},
+    ])
+    summary = summary.merge(rate_df, on=["STAGE", "CALTYPE", "DOSE", "EXPTIME"], how="left")
+
+    _plot_bias_dark_error(summary, tmp_path)
+    _plot_dose_rate_effect(summary, tmp_path)
+
+    for cal in ("bias", "dark"):
+        assert (tmp_path / f"{cal}_mean_std_vs_dose.png").is_file()
+        assert (tmp_path / f"{cal}_mean_std_vs_dose.npz").is_file()
+        assert (tmp_path / f"dose_rate_effect_{cal}.png").is_file()
+        assert (tmp_path / f"dose_rate_effect_{cal}.npz").is_file()
+
