@@ -18,14 +18,18 @@ from dose_analysis import (
     _dynamic_range_analysis,
     _relative_precision_analysis,
     _plot_bias_dark_error,
+    _estimate_dose_rate,
+    _plot_dose_rate_effect,
 )
 
 
 
-def _make_fits(path, value, temp=10.0, exp=1.0):
+def _make_fits(path, value, temp=10.0, exp=1.0, ts=None):
     hdu = fits.PrimaryHDU(np.full((2, 2), value, dtype=np.float32))
     hdu.header['TEMP'] = temp
     hdu.header['EXPTIME'] = exp
+    if ts is not None:
+        hdu.header['TIMESTAMP'] = ts
     hdu.writeto(path, overwrite=True)
 
 
@@ -351,4 +355,50 @@ def test_plot_bias_dark_error_outputs(tmp_path):
         assert npz.is_file()
         data = np.load(npz)
         assert "slope_ir" in data and "slope_no" in data
+
+
+def test_estimate_dose_rate_and_plot(tmp_path):
+    d1 = tmp_path / "1kRads"
+    d2 = tmp_path / "2kRads"
+    d1.mkdir()
+    d2.mkdir()
+
+    f1 = d1 / "f1.fits"
+    f2 = d1 / "f2.fits"
+    f3 = d2 / "f1.fits"
+    f4 = d2 / "f2.fits"
+    _make_fits(f1, 1, ts=0)
+    _make_fits(f2, 1, ts=10)
+    _make_fits(f3, 2, ts=20)
+    _make_fits(f4, 2, ts=40)
+
+    df = pd.DataFrame({
+        "PATH": [str(f1), str(f2), str(f3), str(f4)],
+        "CALTYPE": ["BIAS"] * 4,
+        "STAGE": ["radiating"] * 4,
+        "VACUUM": ["air"] * 4,
+        "TEMP": [10.0] * 4,
+        "ZEROFRACTION": [0.0] * 4,
+        "BADFITS": [False] * 4,
+    })
+
+    rate_df = _estimate_dose_rate(df)
+    assert len(rate_df) == 2
+    r1 = rate_df.sort_values("DOSE")["DOSE_RATE"].iloc[0]
+    r2 = rate_df.sort_values("DOSE")["DOSE_RATE"].iloc[1]
+    assert np.isclose(r1, 0.1)
+    assert np.isclose(r2, 0.05)
+
+    summary = pd.DataFrame([
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.2, "DOSE_RATE": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 3.0, "STD": 0.3, "DOSE_RATE": 0.05},
+        {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1, "DOSE_RATE": np.nan},
+    ])
+
+    _plot_dose_rate_effect(summary, tmp_path)
+
+    png = tmp_path / "dose_rate_effect_bias.png"
+    npz = tmp_path / "dose_rate_effect_bias.npz"
+    assert png.is_file()
+    assert npz.is_file()
 

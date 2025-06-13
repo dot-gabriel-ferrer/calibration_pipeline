@@ -151,6 +151,65 @@ def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None],
     return groups
 
 
+def _estimate_dose_rate(df: pd.DataFrame) -> pd.DataFrame:
+    """Return dose rate for each file group.
+
+    The function groups ``df`` using :func:`_group_paths` and reads the
+    ``TIMESTAMP`` header keyword from every FITS file within each group.
+    For ``radiating`` groups the dose rate is computed as::
+
+        (current_dose - previous_dose) / (t_last - t_first)
+
+    where ``previous_dose`` is the dose of the preceding irradiation group
+    (or ``0`` for the first one).  Non irradiating groups receive a ``NaN``
+    dose rate.
+    """
+
+    groups = _group_paths(df)
+
+    irrad_doses = sorted({k[2] for k in groups if k[0] == "radiating"})
+    prev_map: Dict[float, float] = {}
+    prev = 0.0
+    for d in irrad_doses:
+        prev_map[d] = prev
+        prev = d
+
+    rows: List[dict[str, float]] = []
+
+    for key, paths in groups.items():
+        stage, cal, dose, exp = key
+        rate = float("nan")
+        if stage == "radiating":
+            ts_values: List[float] = []
+            for p in paths:
+                try:
+                    hdr = fits.getheader(p)
+                    ts = hdr.get("TIMESTAMP")
+                    if ts is not None:
+                        ts = float(ts)
+                        if np.isfinite(ts):
+                            ts_values.append(ts)
+                except Exception:
+                    pass
+            if len(ts_values) >= 2:
+                dt = max(ts_values) - min(ts_values)
+                dd = dose - prev_map.get(dose, 0.0)
+                if dt > 0:
+                    rate = dd / dt
+
+        rows.append(
+            {
+                "STAGE": stage,
+                "CALTYPE": cal,
+                "DOSE": dose,
+                "EXPTIME": exp,
+                "DOSE_RATE": rate,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
     """Plot mean signal vs dose for all stages grouped by exposure time."""
     if summary.empty:
@@ -308,6 +367,65 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
             intercept_ir=b_ir,
             slope_no=a_no,
             intercept_no=b_no,
+        )
+
+
+def _plot_dose_rate_effect(summary: pd.DataFrame, outdir: str) -> None:
+    """Plot MEAN and STD versus ``DOSE_RATE`` distinguishing irradiation."""
+
+    if summary.empty or "DOSE_RATE" not in summary.columns:
+        return
+
+    df = summary.dropna(subset=["DOSE_RATE"])
+    if df.empty:
+        return
+
+    os.makedirs(outdir, exist_ok=True)
+
+    for cal in sorted(df["CALTYPE"].unique()):
+        cal_df = df[df["CALTYPE"] == cal]
+        if cal_df.empty:
+            continue
+
+        ir = cal_df[cal_df["STAGE"] == "radiating"]
+        non = cal_df[cal_df["STAGE"] != "radiating"]
+
+        fig, ax1 = plt.subplots()
+        ax2 = ax1.twinx()
+
+        ax1.plot(ir["DOSE_RATE"], ir["MEAN"], "o", label="mean irradiated", color="C0")
+        ax1.plot(non["DOSE_RATE"], non["MEAN"], "s", label="mean non irr.", color="C2")
+
+        ax2.plot(ir["DOSE_RATE"], ir["STD"], "o", label="std irradiated", color="C1")
+        ax2.plot(non["DOSE_RATE"], non["STD"], "s", label="std non irr.", color="C3")
+
+        ax1.set_xlabel("Dose rate [kRad/s]")
+        ax1.set_ylabel("Mean ADU", color="C0")
+        ax2.set_ylabel("STD ADU", color="C1")
+        ax1.grid(True, ls="--", alpha=0.5)
+        fig.suptitle(f"{cal} mean/std vs dose rate")
+        fig.tight_layout()
+
+        lines, labels = [], []
+        for ax in (ax1, ax2):
+            l, la = ax.get_legend_handles_labels()
+            lines.extend(l)
+            labels.extend(la)
+        fig.legend(lines, labels, loc="upper left")
+
+        fname = f"dose_rate_effect_{cal.lower()}.png"
+        out_png = os.path.join(outdir, fname)
+        fig.savefig(out_png)
+        plt.close(fig)
+
+        np.savez_compressed(
+            os.path.splitext(out_png)[0] + ".npz",
+            rate_ir=ir["DOSE_RATE"].to_numpy(float),
+            mean_ir=ir["MEAN"].to_numpy(float),
+            std_ir=ir["STD"].to_numpy(float),
+            rate_no=non["DOSE_RATE"].to_numpy(float),
+            mean_no=non["MEAN"].to_numpy(float),
+            std_no=non["STD"].to_numpy(float),
         )
 
 
@@ -1287,11 +1405,20 @@ def main(index_csv: str, output_dir: str) -> None:
         })
 
     summary = pd.DataFrame.from_records(records)
+
+    rate_df = _estimate_dose_rate(df)
+    if not rate_df.empty:
+        summary = summary.merge(
+            rate_df, on=["STAGE", "CALTYPE", "DOSE", "EXPTIME"], how="left"
+        )
+    else:
+        summary["DOSE_RATE"] = np.nan
     summary_csv = os.path.join(output_dir, "dose_summary.csv")
     summary.to_csv(summary_csv, index=False)
 
     _save_plot(summary, os.path.join(output_dir, "plots"))
     _plot_bias_dark_error(summary, os.path.join(output_dir, "plots"))
+    _plot_dose_rate_effect(summary, os.path.join(output_dir, "plots"))
 
     pix_df = _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
     _compare_stage_differences(summary, master_dir, os.path.join(output_dir, "analysis"))
