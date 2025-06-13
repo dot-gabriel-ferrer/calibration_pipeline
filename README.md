@@ -31,7 +31,10 @@ The repository also includes a couple of standalone scripts useful for data expl
   written to `analysis/base_level_trend.csv` alongside the corresponding plots.
   It also compares the first/last irradiation base levels with the pre/post
   values, saving the differences versus dose in `analysis/stage_base_diff.npz`
-  and the accompanying figures.
+  and the accompanying figures. Plots of mean signal, photometric precision
+  and magnitude/ADU error versus dose are stored in `plots/` together with
+  matching `.npz` files (e.g. `mag_err_vs_dose.npz`) containing the plotted
+  arrays.
 
 The stored differences indicate how much the detector baseline shifts when
 irradiation begins and how much of that shift remains once the source is turned
@@ -227,4 +230,6 @@ python run_radiation.py path/to/irrad_dataset path/to/radiationLogCompleto.csv o
 
 Select specific stages with `--stages pre radiating post` (defaults to all).
 The script writes `index.csv` in the dataset root and places all analysis
-outputs inside the chosen output directory.
+outputs inside the chosen output directory. Difference heatmaps created during
+the analysis now save the underlying arrays alongside each PNG as `.npz`
+files for further inspection.

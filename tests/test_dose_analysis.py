@@ -76,6 +76,7 @@ def test_save_plot_all_stages(monkeypatch, tmp_path):
     _save_plot(summary, tmp_path)
 
     assert sorted(labels) == ['post', 'pre', 'radiating']
+    assert (tmp_path / 'bias_mean_vs_dose_E1p0s.npz').is_file()
 
 
 def test_compute_photometric_precision():
@@ -110,7 +111,8 @@ def test_plot_photometric_precision(monkeypatch, tmp_path):
     _plot_photometric_precision(df, tmp_path)
 
     assert len(yerrs) == 1
-    assert np.allclose(yerrs[0], df["MAG_ERR_STD"]) 
+    assert np.allclose(yerrs[0], df["MAG_ERR_STD"])
+    assert (tmp_path / 'photometric_precision_vs_dose.npz').is_file()
 
 
 def test_pixel_precision_analysis_generates_maps(tmp_path):
@@ -132,6 +134,8 @@ def test_pixel_precision_analysis_generates_maps(tmp_path):
     assert (out_dir / 'adu_err12_1kR.png').is_file()
     assert (out_dir / 'mag_err_vs_dose.png').is_file()
     assert (out_dir / 'adu_err_vs_dose.png').is_file()
+    assert (out_dir / 'mag_err_vs_dose.npz').is_file()
+    assert (out_dir / 'adu_err_vs_dose.npz').is_file()
     assert set(stats.columns) == {"DOSE", "MAG_MEAN", "MAG_STD", "ADU_MEAN", "ADU_STD"}
     assert len(stats) == 1
 
