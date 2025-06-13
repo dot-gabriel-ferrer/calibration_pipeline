@@ -945,7 +945,7 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     # 12-bit dynamic range
     fig12, (ax12, ax12_red) = plt.subplots(2, 1, sharex=True)
     ax12.plot(doses, dr12_vals, "s-")
-    ax12.fill_between(doses, np.array(dr12_vals) - dr_err, np.array(dr12_vals) + dr_err, alpha=0.2)
+    ax12.fill_between(doses, np.array(dr12_vals) - dr_err/16, np.array(dr12_vals) + dr_err/16, alpha=0.2)
     ax12.axhline(4096, color="C3", ls="--", label="12-bit max")
     ax12.set_ylabel("Dynamic range [ADU]")
     ax12.set_title("12-bit dynamic range vs dose")
