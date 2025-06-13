@@ -2,8 +2,8 @@
 """Comparative analysis of bias and dark frames across radiation stages.
 
 This script builds upon ``process_index.py`` and ``operation_analysis.py`` to
-compute master bias and dark frames for the *pre*, *during* and *post*
-irradiation stages.  During the radiation stage the frames are additionally
+compute master bias and dark frames for the *pre*, *radiating* and *post*
+irradiation stages.  During the radiating stage the frames are additionally
 split by the mean radiation level indicated in ``radiationLogCompleto.csv``.
 
 For each selected dataset the script generates:
@@ -260,8 +260,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--stages",
         nargs="*",
-        default=["pre", "during", "post"],
-        help="Stages to analyse (pre, during, post)",
+        default=["pre", "radiating", "post"],
+        help="Stages to analyse (pre, radiating, post)",
     )
     args = parser.parse_args()
     main(args.index_csv, args.radiation_log, args.output_dir, args.stages)

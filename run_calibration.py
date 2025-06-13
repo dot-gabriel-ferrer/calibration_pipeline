@@ -33,7 +33,7 @@ def _run_irradiation(base: str, output_dir: str) -> None:
         for name in sorted(os.listdir(irrad_root)):
             path = os.path.join(irrad_root, name)
             if os.path.isdir(path):
-                stages.append((path, "during"))
+                stages.append((path, "radiating"))
 
     post = os.path.join(base, "Postirradiation")
     if os.path.isdir(post):

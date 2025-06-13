@@ -80,8 +80,8 @@ def test_classify_outliers_pre_post():
         (3, 3): {('Pre', 't1')},
     }
     during = {
-        (0, 0): {('During', 't3')},
-        (1, 1): {('During', 't3')},
+        (0, 0): {('Radiating', 't3')},
+        (1, 1): {('Radiating', 't3')},
     }
     post = {
         (0, 0): {('Post', 't4')},

@@ -39,7 +39,7 @@ def test_group_and_master(tmp_path):
     df = pd.DataFrame({
         'PATH': [str(f1), str(f2)],
         'CALTYPE': ['BIAS', 'BIAS'],
-        'STAGE': ['during', 'during'],
+        'STAGE': ['radiating', 'radiating'],
         'VACUUM': ['air', 'air'],
         'TEMP': [10.0, 12.0],
         'ZEROFRACTION': [0.0, 0.0],
@@ -47,7 +47,7 @@ def test_group_and_master(tmp_path):
     })
 
     groups = _group_paths(df)
-    key = ('during', 'BIAS', 1.0, 1.0)
+    key = ('radiating', 'BIAS', 1.0, 1.0)
     assert key in groups and len(groups[key]) == 2
 
     master, hdr = _make_master(groups[key])
@@ -58,7 +58,7 @@ def test_group_and_master(tmp_path):
 def test_save_plot_all_stages(monkeypatch, tmp_path):
     summary = pd.DataFrame([
         {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
-        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.2},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.2},
         {"STAGE": "post", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 3.0, "STD": 0.3},
     ])
 
@@ -73,15 +73,15 @@ def test_save_plot_all_stages(monkeypatch, tmp_path):
 
     _save_plot(summary, tmp_path)
 
-    assert sorted(labels) == ['during', 'post', 'pre']
+    assert sorted(labels) == ['post', 'pre', 'radiating']
 
 
 def test_compute_photometric_precision():
     summary = pd.DataFrame([
-        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 0.0, "MEAN": 1000.0, "STD": 4.0},
-        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 100.0, "STD": 5.0},
-        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 0.0, "MEAN": 1000.0, "STD": 4.0},
-        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 100.0, "STD": 10.0},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 0.0, "MEAN": 1000.0, "STD": 4.0},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 100.0, "STD": 5.0},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 0.0, "MEAN": 1000.0, "STD": 4.0},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 100.0, "STD": 10.0},
     ])
 
     df = _compute_photometric_precision(summary)
@@ -118,8 +118,8 @@ def test_pixel_precision_analysis_generates_maps(tmp_path):
     _make_fits(dark, 10)
 
     groups = {
-        ('during', 'BIAS', 1.0, None): [str(bias)],
-        ('during', 'DARK', 1.0, None): [str(dark)],
+        ('radiating', 'BIAS', 1.0, None): [str(bias)],
+        ('radiating', 'DARK', 1.0, None): [str(dark)],
     }
 
     out_dir = tmp_path / 'out'
@@ -136,12 +136,12 @@ def test_pixel_precision_analysis_generates_maps(tmp_path):
 
 def test_fit_dose_response_outputs(tmp_path, monkeypatch):
     summary = pd.DataFrame([
-        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
-        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.1},
-        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 0.1},
-        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 12.0, "STD": 0.1},
-        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 2.0, "MEAN": 20.0, "STD": 0.1},
-        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 2.0, "MEAN": 24.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 12.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 2.0, "MEAN": 20.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 2.0, "MEAN": 24.0, "STD": 0.1},
     ])
 
     saved = []
@@ -168,14 +168,14 @@ def test_compare_stage_differences_generates_heatmaps(tmp_path):
 
     # create masters for bias
     _make_fits(master_dir / "master_bias_pre_D1kR_E1.0.fits", 1)
-    _make_fits(master_dir / "master_bias_during_D1kR_E1.0.fits", 2)
-    _make_fits(master_dir / "master_bias_during_D5kR_E1.0.fits", 5)
+    _make_fits(master_dir / "master_bias_radiating_D1kR_E1.0.fits", 2)
+    _make_fits(master_dir / "master_bias_radiating_D5kR_E1.0.fits", 5)
     _make_fits(master_dir / "master_bias_post_D5kR_E1.0.fits", 4)
 
     summary = pd.DataFrame([
         {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.0},
-        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.0},
-        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 5.0, "EXPTIME": 1.0, "MEAN": 5.0, "STD": 0.0},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.0},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 5.0, "EXPTIME": 1.0, "MEAN": 5.0, "STD": 0.0},
         {"STAGE": "post", "CALTYPE": "BIAS", "DOSE": 5.0, "EXPTIME": 1.0, "MEAN": 4.0, "STD": 0.0},
     ])
 

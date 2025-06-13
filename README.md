@@ -215,6 +215,6 @@ with `Preirradiation`, `Irradiation` and `Postirradiation` folders and a
 python run_radiation.py path/to/irrad_dataset path/to/radiationLogCompleto.csv output_dir/
 ```
 
-Select specific stages with `--stages pre during post` (defaults to all).
+Select specific stages with `--stages pre radiating post` (defaults to all).
 The script writes `index.csv` in the dataset root and places all analysis
 outputs inside the chosen output directory.
