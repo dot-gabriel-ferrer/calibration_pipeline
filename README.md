@@ -34,7 +34,12 @@ The repository also includes a couple of standalone scripts useful for data expl
   and the accompanying figures. Plots of mean signal, photometric precision
   and magnitude/ADU error versus dose are stored in `plots/` together with
   matching `.npz` files (e.g. `mag_err_vs_dose.npz`) containing the plotted
-  arrays.
+  arrays. The script now performs a *relative photometric precision* analysis,
+  comparing noise and magnitude errors to the pre-irradiation stage. The
+  resulting plots (`relative_noise_vs_dose_*`, `relative_mag_err_vs_dose_*`)
+  and their `.npz` arrays are written inside `analysis/`, along with
+  `relative_precision.npz` summarising all stages and an optional
+  `pre_vs_post_relative_precision.png` when post data are available.
 
 The stored differences indicate how much the detector baseline shifts when
 irradiation begins and how much of that shift remains once the source is turned
