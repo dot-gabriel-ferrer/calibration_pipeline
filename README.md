@@ -25,8 +25,10 @@ The repository also includes a couple of standalone scripts useful for data expl
   `rad_vs_outliers.png` for basic sensor behaviour assessment. The
   linear fit on this plot now gracefully falls back to a constant line
   if a polynomial fit cannot be computed.
-- **`dose_analysis.py`** – groups calibration frames by radiation dose and now
-  fits a dose-response for dark current at each exposure time.
+- **`dose_analysis.py`** – groups calibration frames by radiation dose,
+  fits a dose-response for dark current at each exposure time and now also
+  fits linear base level trends for bias and dark frames. The coefficients are
+  written to `analysis/base_level_trend.csv` alongside the corresponding plots.
 
 ## Installation
 
