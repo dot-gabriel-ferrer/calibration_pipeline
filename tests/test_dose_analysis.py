@@ -16,6 +16,7 @@ from dose_analysis import (
     _compare_stage_differences,
     _pixel_precision_analysis,
     _dynamic_range_analysis,
+    _relative_precision_analysis,
 )
 
 
@@ -271,5 +272,25 @@ def test_stage_base_level_diff_outputs(tmp_path):
 
     assert set(df["CALTYPE"]) == {"BIAS", "DARK"}
     assert set(df["CMP"]) == {"first_pre", "last_post"}
+
+
+def test_relative_precision_analysis_outputs(tmp_path):
+    summary = pd.DataFrame([
+        {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 1.0},
+        {"STAGE": "pre", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 1.0},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 12.0, "STD": 1.5},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 3.0, "STD": 1.2},
+        {"STAGE": "post", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 11.0, "STD": 1.1},
+        {"STAGE": "post", "CALTYPE": "DARK", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 2.5, "STD": 1.0},
+    ])
+
+    df = _relative_precision_analysis(summary, tmp_path)
+
+    assert (tmp_path / "relative_noise_vs_dose_16.png").is_file()
+    assert (tmp_path / "relative_mag_err_vs_dose_16.png").is_file()
+    assert (tmp_path / "relative_precision.npz").is_file()
+
+    pre_diff = df[df["STAGE"] == "pre"]["NOISE16_DIFF"].iloc[0]
+    assert abs(pre_diff) < 1e-6
 
 
