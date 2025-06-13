@@ -197,8 +197,8 @@ def test_compare_stage_differences_generates_heatmaps(tmp_path):
 
 def test_dynamic_range_analysis_outputs(tmp_path):
     summary = pd.DataFrame([
-        {"STAGE": "during", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 0.0, "MEAN": 10.0, "STD": 1.0},
-        {"STAGE": "during", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 5.0, "STD": 2.0},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 0.0, "MEAN": 10.0, "STD": 1.0},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 5.0, "STD": 2.0},
     ])
 
     df = _dynamic_range_analysis(summary, str(tmp_path))
