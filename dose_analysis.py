@@ -1116,7 +1116,7 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
         data is missing.
     """
 
-    df = summary[summary["STAGE"].isin(["radiating", "during"])]
+    df = summary[summary["STAGE"].isin({"radiating", "during"})]
     bias = df[df["CALTYPE"] == "BIAS"]
     dark = df[df["CALTYPE"] == "DARK"]
     doses = sorted(set(bias["DOSE"]) & set(dark["DOSE"]))
