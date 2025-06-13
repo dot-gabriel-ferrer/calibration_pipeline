@@ -29,6 +29,14 @@ The repository also includes a couple of standalone scripts useful for data expl
   fits a dose-response for dark current at each exposure time and now also
   fits linear base level trends for bias and dark frames. The coefficients are
   written to `analysis/base_level_trend.csv` alongside the corresponding plots.
+  It also compares the first/last irradiation base levels with the pre/post
+  values, saving the differences versus dose in `analysis/stage_base_diff.npz`
+  and the accompanying figures.
+
+The stored differences indicate how much the detector baseline shifts when
+irradiation begins and how much of that shift remains once the source is turned
+off. Positive values mean the radiating stage has a higher mean level than the
+reference stage.
 
 ## Installation
 

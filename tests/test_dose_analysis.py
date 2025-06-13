@@ -12,6 +12,7 @@ from dose_analysis import (
     _save_plot,
     _fit_dose_response,
     _fit_base_level_trend,
+    _stage_base_level_diff,
     _compare_stage_differences,
     _pixel_precision_analysis,
     _dynamic_range_analysis,
@@ -238,5 +239,27 @@ def test_fit_base_level_trend_outputs(tmp_path, monkeypatch):
         "base_level_trend_bias.png",
         "base_level_trend_dark.png",
     ]
+
+
+def test_stage_base_level_diff_outputs(tmp_path):
+    summary = pd.DataFrame([
+        {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 12.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 5.0, "EXPTIME": 1.0, "MEAN": 14.0, "STD": 0.1},
+        {"STAGE": "post", "CALTYPE": "BIAS", "DOSE": 5.0, "EXPTIME": 1.0, "MEAN": 13.0, "STD": 0.1},
+        {"STAGE": "pre", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 20.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 22.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 5.0, "EXPTIME": 1.0, "MEAN": 25.0, "STD": 0.1},
+        {"STAGE": "post", "CALTYPE": "DARK", "DOSE": 5.0, "EXPTIME": 1.0, "MEAN": 24.0, "STD": 0.1},
+    ])
+
+    df = _stage_base_level_diff(summary, tmp_path)
+
+    assert (tmp_path / "stage_base_diff.npz").is_file()
+    assert (tmp_path / "stage_base_diff_bias.png").is_file()
+    assert (tmp_path / "stage_base_diff_dark.png").is_file()
+
+    assert set(df["CALTYPE"]) == {"BIAS", "DARK"}
+    assert set(df["CMP"]) == {"first_pre", "last_post"}
 
 
