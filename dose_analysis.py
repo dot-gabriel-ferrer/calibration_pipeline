@@ -39,6 +39,8 @@ def _dose_from_path(path: str) -> float | None:
         val = _parse_rads(part)
         if val is not None:
             return val
+    if logger.isEnabledFor(logging.INFO):
+        logger.info("Dose not found in path %s", path)
     return None
 
 
@@ -58,14 +60,18 @@ def _exptime_from_path(path: str) -> float | None:
         try:
             return float(m.group(1))
         except ValueError:
-            pass
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Invalid exposure token '%s' in %s", m.group(1), path)
 
     try:
         hdr = fits.getheader(path)
         if "EXPTIME" in hdr:
             return float(hdr["EXPTIME"])
-    except Exception:
-        pass
+    except Exception as exc:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Error reading EXPTIME from %s: %s", path, exc)
+    if logger.isEnabledFor(logging.INFO):
+        logger.info("Exposure time missing for %s", path)
     return None
 
 
@@ -74,8 +80,12 @@ def _temperature_from_header(path: str) -> float | None:
         hdr = fits.getheader(path)
         if "TEMP" in hdr:
             return float(hdr["TEMP"])
-    except Exception:
-        pass
+    except Exception as exc:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Error reading TEMP from %s: %s", path, exc)
+        return None
+    if logger.isEnabledFor(logging.INFO):
+        logger.info("Temperature missing for %s", path)
     return None
 
 
@@ -88,7 +98,11 @@ def _make_master(paths: List[str]) -> Tuple[np.ndarray, fits.Header]:
     for p in tqdm(paths, desc="Reading frames", unit="frame", leave=False):
         data = fits.getdata(p).astype(np.float32)
         stack.append(data)
-        temps.append(_temperature_from_header(p))
+        t = _temperature_from_header(p)
+        if t is None or not np.isfinite(t):
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("No valid temperature for %s", p)
+        temps.append(t)
         means.append(float(np.mean(data)))
         stds.append(float(np.std(data)))
     stack_arr = np.stack(stack, axis=0)
@@ -149,8 +163,13 @@ def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None],
         elif stage == "post":
             dose = max_dose
         if dose is None:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Dose missing for %s", row["PATH"])
             dose = 0.0
         exp = _exptime_from_path(row["PATH"])
+        if exp is None or not np.isfinite(exp):
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Exposure time missing for %s", row["PATH"])
         groups[(stage, cal, dose, exp)].append(row["PATH"])
     return groups
 
@@ -197,12 +216,20 @@ def _estimate_dose_rate(df: pd.DataFrame) -> pd.DataFrame:
                         if np.isfinite(ts):
                             ts_values.append(ts)
                 except Exception:
-                    pass
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info("Failed to read TIMESTAMP from %s", p)
             if len(ts_values) >= 2:
                 dt = max(ts_values) - min(ts_values)
                 dd = dose - prev_map.get(dose, 0.0)
                 if dt > 0:
                     rate = dd / dt
+            else:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Insufficient timestamps for dose rate: stage=%s dose=%s",
+                        stage,
+                        dose,
+                    )
 
         rows.append(
             {
@@ -220,12 +247,16 @@ def _estimate_dose_rate(df: pd.DataFrame) -> pd.DataFrame:
 def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
     """Plot mean signal vs dose for all stages grouped by exposure time."""
     if summary.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Summary table empty; skipping mean vs dose plot")
         return
 
     os.makedirs(outdir, exist_ok=True)
     for cal in sorted(summary["CALTYPE"].unique()):
         cal_df = summary[summary["CALTYPE"] == cal]
         if cal_df.empty:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("No data for calibration type %s", cal)
             continue
 
         exp_values = sorted(cal_df["EXPTIME"].dropna().unique())
@@ -239,6 +270,8 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
                 sub = cal_df[cal_df["EXPTIME"] == exp]
 
             if sub.empty:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("No data for %s with exposure %s", cal, exp)
                 continue
 
             fig, ax = plt.subplots()
@@ -247,6 +280,10 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
             for stage in ("pre", "radiating", "post"):
                 stage_df = sub[sub["STAGE"] == stage]
                 if stage_df.empty:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "No %s data for stage %s exposure %s", cal, stage, exp
+                        )
                     continue
                 x = stage_df["DOSE"].astype(float)
                 y = stage_df["MEAN"].astype(float)
@@ -296,6 +333,8 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
     """
 
     if summary.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Summary table empty; skipping bias/dark error plot")
         return
 
     os.makedirs(outdir, exist_ok=True)
@@ -312,6 +351,8 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
     for cal in ("BIAS", "DARK"):
         cal_df = adj[adj["CALTYPE"] == cal]
         if cal_df.empty:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("No %s data for bias/dark error plot", cal)
             continue
 
         if cal == "DARK":
@@ -330,6 +371,8 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
             else:
                 sub = cal_df
             if sub.empty:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("No data for %s exposure %s in error plot", cal, exp)
                 continue
 
             ir_df = sub[sub["STAGE"].isin({"radiating", "during"})]
@@ -337,6 +380,10 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
 
             def _fit(df: pd.DataFrame) -> tuple[float, float]:
                 if len(df) < 2:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Not enough points for fit (%d found)", len(df)
+                        )
                     return float("nan"), float("nan")
                 coeff = np.polyfit(df["MEAN"].astype(float), df["STD"].astype(float), 1)
                 return float(coeff[0]), float(coeff[1])
@@ -444,10 +491,14 @@ def _plot_dose_rate_effect(summary: pd.DataFrame, outdir: str) -> None:
     """Plot MEAN and STD versus ``DOSE_RATE`` distinguishing irradiation."""
 
     if summary.empty or "DOSE_RATE" not in summary.columns:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Dose rate information missing; skipping dose-rate plot")
         return
 
     df = summary.dropna(subset=["DOSE_RATE"])
     if df.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("All dose rate values are NaN")
         return
 
     os.makedirs(outdir, exist_ok=True)
@@ -455,6 +506,8 @@ def _plot_dose_rate_effect(summary: pd.DataFrame, outdir: str) -> None:
     for cal in sorted(df["CALTYPE"].unique()):
         cal_df = df[df["CALTYPE"] == cal]
         if cal_df.empty:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("No dose-rate data for %s", cal)
             continue
 
         ir = cal_df[cal_df["STAGE"].isin({"radiating", "during"})]
@@ -471,6 +524,10 @@ def _plot_dose_rate_effect(summary: pd.DataFrame, outdir: str) -> None:
 
         def _fit(x: pd.Series, y: pd.Series) -> tuple[float, float]:
             if len(x) < 2:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Not enough points for dose-rate fit (%d found)", len(x)
+                    )
                 return float("nan"), float("nan")
             coeff = np.polyfit(x.astype(float), y.astype(float), 1)
             return float(coeff[0]), float(coeff[1])
@@ -575,6 +632,8 @@ def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
 
 def _plot_photometric_precision(df: pd.DataFrame, outdir: str) -> None:
     if df.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No photometric precision data to plot")
         return
     os.makedirs(outdir, exist_ok=True)
     df = df.sort_values("DOSE")
@@ -613,6 +672,8 @@ def _plot_photometric_precision(df: pd.DataFrame, outdir: str) -> None:
 def _plot_error_vs_dose(df: pd.DataFrame, outdir: str) -> None:
     """Plot global magnitude/ADU errors as a function of dose."""
     if df.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No error vs dose data to plot")
         return
     os.makedirs(outdir, exist_ok=True)
     df = df.sort_values("DOSE")
@@ -685,6 +746,8 @@ def _pixel_precision_analysis(
     dark_groups = {k: v for k, v in groups.items() if k[0] in irrad_stages and k[1] == "DARK"}
     doses = sorted(set(k[2] for k in bias_groups) & set(k[2] for k in dark_groups))
     if not doses:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No overlapping doses for pixel precision analysis")
         return
 
     os.makedirs(outdir, exist_ok=True)
@@ -697,6 +760,10 @@ def _pixel_precision_analysis(
         b_paths = [p for k, v in bias_groups.items() if k[2] == d for p in v]
         d_paths = [p for k, v in dark_groups.items() if k[2] == d for p in v]
         if not b_paths or not d_paths:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Missing bias or dark frames for dose %s", d
+                )
             continue
 
         b_mean, b_std = _stack_stats(b_paths)
@@ -775,6 +842,8 @@ def _pixel_precision_analysis(
     fig_m, ax_m = plt.subplots()
     for label, vals in zone_mag.items():
         if not vals:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("No magnitude data for zone %s", label)
             continue
         doses = [v[0] for v in vals]
         errs = [v[1] for v in vals]
@@ -791,6 +860,8 @@ def _pixel_precision_analysis(
     fig_a, ax_a = plt.subplots()
     for label, vals in zone_adu.items():
         if not vals:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("No ADU data for zone %s", label)
             continue
         doses = [v[0] for v in vals]
         errs = [v[1] for v in vals]
@@ -808,6 +879,9 @@ def _pixel_precision_analysis(
     if not stats_df.empty:
         stats_df.to_csv(os.path.join(outdir, "pixel_precision_stats.csv"), index=False)
         _plot_error_vs_dose(stats_df, outdir)
+    else:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No statistics computed for pixel precision analysis")
     return stats_df
 
 
@@ -946,6 +1020,8 @@ def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
     """Fit a linear model of mean value vs dose and store coefficients."""
     df = summary[summary["STAGE"].isin({"radiating", "during"})]
     if df.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No irradiating data for dose-response fit")
         return
     os.makedirs(outdir, exist_ok=True)
     rows = []
@@ -962,6 +1038,10 @@ def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
 
         for exp, sub in groups:
             if len(sub) < 2:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Not enough points to fit dose response for %s exp %s", cal, exp
+                    )
                 continue
             x = sub["DOSE"].astype(float)
             y = sub["MEAN"].astype(float)
@@ -1017,6 +1097,8 @@ def _fit_base_level_trend(summary: pd.DataFrame, outdir: str) -> None:
 
     df = summary[summary["STAGE"].isin({"radiating", "during"})]
     if df.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No irradiating data for base level trend fit")
         return
 
     os.makedirs(outdir, exist_ok=True)
@@ -1025,9 +1107,15 @@ def _fit_base_level_trend(summary: pd.DataFrame, outdir: str) -> None:
     for cal in ("BIAS", "DARK"):
         cal_df = df[df["CALTYPE"] == cal]
         if cal_df.empty:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("No %s data for base level trend", cal)
             continue
         grouped = cal_df.groupby("DOSE")["MEAN"].mean().reset_index()
         if len(grouped) < 2:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Not enough points to fit base level trend for %s", cal
+                )
             continue
 
         x = grouped["DOSE"].astype(float)
@@ -1083,6 +1171,8 @@ def _stage_base_level_diff(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     pre = summary[summary["STAGE"] == "pre"]
     post = summary[summary["STAGE"] == "post"]
     if rad.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No irradiating data for stage base level comparison")
         return pd.DataFrame()
 
     min_d = float(rad["DOSE"].min())
@@ -1099,6 +1189,12 @@ def _stage_base_level_diff(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
         r_last = rad[(rad["CALTYPE"] == cal) & (rad["DOSE"] == max_d)]
         p_pre = pre[pre["CALTYPE"] == cal]
         p_post = post[post["CALTYPE"] == cal]
+        if r_first.empty or p_pre.empty:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Missing data to compare first vs pre for %s", cal)
+        if r_last.empty or p_post.empty:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Missing data to compare last vs post for %s", cal)
 
         if not r_first.empty and not p_pre.empty:
             diff = float(r_first["MEAN"].mean() - p_pre["MEAN"].mean())
@@ -1165,6 +1261,8 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
 
     rows: list[dict[str, float]] = []
     if not doses:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No common doses found for dynamic range analysis")
         return pd.DataFrame()
 
     os.makedirs(outdir, exist_ok=True)
@@ -1342,6 +1440,8 @@ def _relative_precision_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataF
     bias = summary[summary["CALTYPE"] == "BIAS"]
     dark = summary[summary["CALTYPE"] == "DARK"]
     if bias.empty or dark.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Missing bias or dark data for relative precision analysis")
         return pd.DataFrame()
 
     rows: list[dict[str, float]] = []
@@ -1353,6 +1453,8 @@ def _relative_precision_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataF
             b_rows = b_stage[b_stage["DOSE"] == d]
             d_rows = d_stage[d_stage["DOSE"] == d]
             if b_rows.empty or d_rows.empty:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Missing data for stage %s dose %s", stage, d)
                 continue
 
             bias_mean = float(b_rows["MEAN"].mean())
@@ -1382,6 +1484,8 @@ def _relative_precision_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataF
 
     df = pd.DataFrame(rows)
     if df.empty:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("No data for relative precision analysis")
         return df
 
     pre_mean = df[df["STAGE"] == "pre"].mean(numeric_only=True)
@@ -1404,6 +1508,8 @@ def _relative_precision_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataF
         for stage in ("pre", "radiating", "post"):
             sub = df[df["STAGE"] == stage]
             if sub.empty:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("No %s data for %s", stage, metric)
                 continue
             x = sub["DOSE"].astype(float)
             y = sub[metric].astype(float)
@@ -1528,6 +1634,8 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
             rate_df, on=["STAGE", "CALTYPE", "DOSE", "EXPTIME"], how="left"
         )
     else:
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Dose rate estimation failed for all groups")
         summary["DOSE_RATE"] = np.nan
     summary_csv = os.path.join(output_dir, "dose_summary.csv")
     summary.to_csv(summary_csv, index=False)
