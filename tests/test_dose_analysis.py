@@ -17,6 +17,7 @@ from dose_analysis import (
     _pixel_precision_analysis,
     _dynamic_range_analysis,
     _relative_precision_analysis,
+    _plot_bias_dark_error,
 )
 
 
@@ -327,4 +328,27 @@ def test_relative_precision_analysis_npz_and_plots(tmp_path, monkeypatch):
     assert (tmp_path / "relative_precision.npz").is_file()
     assert len(df) == 3
     assert df[df["STAGE"] == "pre"]["NOISE16_DIFF"].iloc[0] == 0.0
+
+
+def test_plot_bias_dark_error_outputs(tmp_path):
+    summary = pd.DataFrame([
+        {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
+        {"STAGE": "post", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 3.0, "STD": 0.3},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.2},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 2.5, "STD": 0.25},
+        {"STAGE": "pre", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 1.0},
+        {"STAGE": "post", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 15.0, "STD": 1.5},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 12.0, "STD": 1.1},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 2.0, "EXPTIME": 1.0, "MEAN": 14.0, "STD": 1.4},
+    ])
+
+    _plot_bias_dark_error(summary, tmp_path)
+
+    for cal in ("bias", "dark"):
+        png = tmp_path / f"{cal}_mean_std_vs_dose.png"
+        npz = tmp_path / f"{cal}_mean_std_vs_dose.npz"
+        assert png.is_file()
+        assert npz.is_file()
+        data = np.load(npz)
+        assert "slope_ir" in data and "slope_no" in data
 

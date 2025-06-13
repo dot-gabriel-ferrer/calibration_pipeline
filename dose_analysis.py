@@ -220,6 +220,97 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
             np.savez_compressed(os.path.splitext(out_png)[0] + ".npz", **plot_data)
 
 
+def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
+    """Plot mean and standard deviation versus dose for bias and dark.
+
+    Data are split into irradiating and non-irradiating sets.  A linear
+    relation ``STD = a * MEAN + b`` is fitted to each set for both BIAS and
+    DARK frames.  The fitted lines and the values used are stored alongside
+    the combined plots.
+    """
+
+    if summary.empty:
+        return
+
+    os.makedirs(outdir, exist_ok=True)
+
+    irrad = summary[summary["STAGE"] == "radiating"]
+
+    min_dose = irrad["DOSE"].min() if not irrad.empty else 0.0
+    max_dose = irrad["DOSE"].max() if not irrad.empty else 0.0
+
+    adj = summary.copy()
+    adj.loc[adj["STAGE"] == "pre", "DOSE"] = min_dose
+    adj.loc[adj["STAGE"] == "post", "DOSE"] = max_dose
+
+    for cal in ("BIAS", "DARK"):
+        cal_df = adj[adj["CALTYPE"] == cal]
+        if cal_df.empty:
+            continue
+
+        ir_df = cal_df[cal_df["STAGE"] == "radiating"]
+        ni_df = cal_df[cal_df["STAGE"].isin(["pre", "post"])]
+
+        def _fit(df: pd.DataFrame) -> tuple[float, float]:
+            if len(df) < 2:
+                return float("nan"), float("nan")
+            coeff = np.polyfit(df["MEAN"].astype(float), df["STD"].astype(float), 1)
+            return float(coeff[0]), float(coeff[1])
+
+        a_ir, b_ir = _fit(ir_df)
+        a_no, b_no = _fit(ni_df)
+
+        x = cal_df["DOSE"].astype(float)
+        order = np.argsort(x)
+        x = x.iloc[order]
+        mean = cal_df["MEAN"].astype(float).iloc[order]
+        std = cal_df["STD"].astype(float).iloc[order]
+
+        fit_ir = a_ir * mean + b_ir
+        fit_no = a_no * mean + b_no
+
+        fig, ax1 = plt.subplots()
+        ax2 = ax1.twinx()
+
+        ax1.plot(x, mean, "o-", label="mean", color="C0")
+        ax2.plot(x, std, "s-", label="std", color="C1")
+        ax2.plot(x, fit_ir, "--", color="C2", label="fit irradiating")
+        ax2.plot(x, fit_no, "--", color="C3", label="fit no irradiating")
+
+        ax1.set_xlabel("Dose [kRad]")
+        ax1.set_ylabel("Mean ADU", color="C0")
+        ax2.set_ylabel("STD ADU", color="C1")
+        ax1.grid(True, ls="--", alpha=0.5)
+
+        fig.suptitle(f"{cal} mean/std vs dose")
+        fig.tight_layout()
+
+        lines, labels = [], []
+        for ax in (ax1, ax2):
+            l, la = ax.get_legend_handles_labels()
+            lines.extend(l)
+            labels.extend(la)
+        fig.legend(lines, labels, loc="upper left")
+
+        fname = f"{cal.lower()}_mean_std_vs_dose.png"
+        out_png = os.path.join(outdir, fname)
+        fig.savefig(out_png)
+        plt.close(fig)
+
+        np.savez_compressed(
+            os.path.splitext(out_png)[0] + ".npz",
+            dose=x.to_numpy(float),
+            mean=mean.to_numpy(float),
+            std=std.to_numpy(float),
+            fit_ir=fit_ir.to_numpy(float),
+            fit_no=fit_no.to_numpy(float),
+            slope_ir=a_ir,
+            intercept_ir=b_ir,
+            slope_no=a_no,
+            intercept_no=b_no,
+        )
+
+
 def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
     """Return estimated photometric precision for ``radiating`` bias/dark.
 
@@ -1200,6 +1291,7 @@ def main(index_csv: str, output_dir: str) -> None:
     summary.to_csv(summary_csv, index=False)
 
     _save_plot(summary, os.path.join(output_dir, "plots"))
+    _plot_bias_dark_error(summary, os.path.join(output_dir, "plots"))
 
     pix_df = _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
     _compare_stage_differences(summary, master_dir, os.path.join(output_dir, "analysis"))
