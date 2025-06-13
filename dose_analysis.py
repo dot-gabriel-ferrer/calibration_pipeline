@@ -307,67 +307,130 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
         if cal_df.empty:
             continue
 
-        ir_df = cal_df[cal_df["STAGE"] == "during"]
-        ni_df = cal_df[cal_df["STAGE"].isin(["pre", "post"])]
+        if cal == "DARK":
+            exp_values = sorted(cal_df["EXPTIME"].dropna().unique())
+            if cal_df["EXPTIME"].isna().any():
+                exp_values.append(None)
+        else:
+            exp_values = [None]
 
-        def _fit(df: pd.DataFrame) -> tuple[float, float]:
-            if len(df) < 2:
-                return float("nan"), float("nan")
-            coeff = np.polyfit(df["MEAN"].astype(float), df["STD"].astype(float), 1)
-            return float(coeff[0]), float(coeff[1])
+        for exp in exp_values:
+            if cal == "DARK":
+                if exp is None:
+                    sub = cal_df[cal_df["EXPTIME"].isna()]
+                else:
+                    sub = cal_df[np.isclose(cal_df["EXPTIME"], exp)]
+            else:
+                sub = cal_df
+            if sub.empty:
+                continue
 
-        a_ir, b_ir = _fit(ir_df)
-        a_no, b_no = _fit(ni_df)
+            ir_df = sub[sub["STAGE"] == "during"]
+            ni_df = sub[sub["STAGE"].isin(["pre", "post"])]
 
-        x = cal_df["DOSE"].astype(float)
-        order = np.argsort(x)
-        x = x.iloc[order]
-        mean = cal_df["MEAN"].astype(float).iloc[order]
-        std = cal_df["STD"].astype(float).iloc[order]
+            def _fit(df: pd.DataFrame) -> tuple[float, float]:
+                if len(df) < 2:
+                    return float("nan"), float("nan")
+                coeff = np.polyfit(df["MEAN"].astype(float), df["STD"].astype(float), 1)
+                return float(coeff[0]), float(coeff[1])
 
-        fit_ir = a_ir * mean + b_ir
-        fit_no = a_no * mean + b_no
+            a_ir, b_ir = _fit(ir_df)
+            a_no, b_no = _fit(ni_df)
 
-        fig, ax1 = plt.subplots()
-        ax2 = ax1.twinx()
+            x = sub["DOSE"].astype(float)
+            order = np.argsort(x)
+            x = x.iloc[order]
+            mean = sub["MEAN"].astype(float).iloc[order]
+            std = sub["STD"].astype(float).iloc[order]
 
-        ax1.plot(x[1:-1], mean[1:-1], "o-", label="mean", color="C0")
-        ax2.plot(x[1:-1], std[1:-1], "s-", label="std", color="C1")
-        ax2.plot(x[1:-1], fit_ir[1:-1], "--", color="C2", label="fit irradiating")
-        ax2.plot(x[1:-1], fit_no[1:-1], "--", color="C3", label="fit no irradiating")
+            fit_ir = a_ir * mean + b_ir
+            fit_no = a_no * mean + b_no
 
-        ax1.set_xlabel("Dose [kRad]")
-        ax1.set_ylabel("Mean ADU", color="C0")
-        ax2.set_ylabel("STD ADU", color="C1")
-        ax1.grid(True, ls="--", alpha=0.5)
+            fig, ax1 = plt.subplots()
+            ax2 = ax1.twinx()
 
-        fig.suptitle(f"{cal} mean/std vs dose")
-        fig.tight_layout()
+            ax1.plot(x[1:-1], mean[1:-1], "o-", label="mean", color="C0")
+            ax2.plot(x[1:-1], std[1:-1], "s-", label="std", color="C1")
+            ax2.plot(x[1:-1], fit_ir[1:-1], "--", color="C2", label="fit irradiating")
+            ax2.plot(x[1:-1], fit_no[1:-1], "--", color="C3", label="fit no irradiating")
 
-        lines, labels = [], []
-        for ax in (ax1, ax2):
-            l, la = ax.get_legend_handles_labels()
-            lines.extend(l)
-            labels.extend(la)
-        fig.legend(lines, labels, loc="upper left")
+            ax1.set_xlabel("Dose [kRad]")
+            ax1.set_ylabel("Mean ADU", color="C0")
+            ax2.set_ylabel("STD ADU", color="C1")
+            ax1.grid(True, ls="--", alpha=0.5)
 
-        fname = f"{cal.lower()}_mean_std_vs_dose.png"
-        out_png = os.path.join(outdir, fname)
-        fig.savefig(out_png)
-        plt.close(fig)
+            title = f"{cal} mean/std vs dose"
+            if exp is not None:
+                title += f" E={exp:g}s"
+            fig.suptitle(title)
+            fig.tight_layout()
 
-        np.savez_compressed(
-            os.path.splitext(out_png)[0] + ".npz",
-            dose=x.to_numpy(float),
-            mean=mean.to_numpy(float),
-            std=std.to_numpy(float),
-            fit_ir=fit_ir.to_numpy(float),
-            fit_no=fit_no.to_numpy(float),
-            slope_ir=a_ir,
-            intercept_ir=b_ir,
-            slope_no=a_no,
-            intercept_no=b_no,
-        )
+            lines, labels = [], []
+            for ax in (ax1, ax2):
+                l, la = ax.get_legend_handles_labels()
+                lines.extend(l)
+                labels.extend(la)
+            fig.legend(lines, labels, loc="upper left")
+
+            fname = f"{cal.lower()}_mean_std_vs_dose"
+            if exp is not None:
+                fname += f"_E{str(exp).replace('.', 'p')}s"
+            fname += ".png"
+            out_png = os.path.join(outdir, fname)
+            fig.savefig(out_png)
+            plt.close(fig)
+
+            np.savez_compressed(
+                os.path.splitext(out_png)[0] + ".npz",
+                dose=x.to_numpy(float),
+                mean=mean.to_numpy(float),
+                std=std.to_numpy(float),
+                fit_ir=fit_ir.to_numpy(float),
+                fit_no=fit_no.to_numpy(float),
+                slope_ir=a_ir,
+                intercept_ir=b_ir,
+                slope_no=a_no,
+                intercept_no=b_no,
+            )
+
+            # Additional plot showing fit equations and residuals
+            fig_fit, (ax_fit, ax_res) = plt.subplots(2, 1, sharex=True)
+            ax_fit.scatter(ni_df["MEAN"], ni_df["STD"], label="no irr.", color="C0")
+            ax_fit.scatter(ir_df["MEAN"], ir_df["STD"], label="irr.", color="C1")
+
+            x_fit = np.linspace(float(min(sub["MEAN"])), float(max(sub["MEAN"])), 100)
+            ax_fit.plot(x_fit, a_ir * x_fit + b_ir, color="C1", ls="--", label="fit irr.")
+            ax_fit.plot(x_fit, a_no * x_fit + b_no, color="C0", ls=":", label="fit no irr.")
+            ax_fit.set_ylabel("STD ADU")
+            ax_fit.legend()
+
+            res_no = ni_df["STD"].astype(float) - (a_no * ni_df["MEAN"].astype(float) + b_no)
+            res_ir = ir_df["STD"].astype(float) - (a_ir * ir_df["MEAN"].astype(float) + b_ir)
+            ax_res.scatter(ni_df["MEAN"], res_no, color="C0", label="no irr.")
+            ax_res.scatter(ir_df["MEAN"], res_ir, color="C1", label="irr.")
+            ax_res.axhline(0.0, color="k", ls="--")
+            ax_res.set_xlabel("Mean ADU")
+            ax_res.set_ylabel("Residual STD")
+            ax_res.legend()
+
+            eq_text = (
+                f"irr: STD={a_ir:.3g}*MEAN+{b_ir:.3g}\n"
+                f"no irr: STD={a_no:.3g}*MEAN+{b_no:.3g}"
+            )
+            fig_fit.text(0.98, 0.5, eq_text, ha="right", va="center")
+
+            title = f"{cal} STD vs mean"
+            if exp is not None:
+                title += f" E={exp:g}s"
+            fig_fit.suptitle(title)
+            fig_fit.tight_layout()
+
+            fname = f"std_model_{cal.lower()}"
+            if exp is not None:
+                fname += f"_E{str(exp).replace('.', 'p')}s"
+            fname += ".png"
+            fig_fit.savefig(os.path.join(outdir, fname))
+            plt.close(fig_fit)
 
 
 def _plot_dose_rate_effect(summary: pd.DataFrame, outdir: str) -> None:

@@ -381,13 +381,21 @@ def test_plot_bias_dark_error_outputs(tmp_path):
 
     _plot_bias_dark_error(summary, tmp_path)
 
-    for cal in ("bias", "dark"):
-        png = tmp_path / f"{cal}_mean_std_vs_dose.png"
-        npz = tmp_path / f"{cal}_mean_std_vs_dose.npz"
-        assert png.is_file()
-        assert npz.is_file()
-        data = np.load(npz)
-        assert "slope_ir" in data and "slope_no" in data
+    # Bias files
+    b_png = tmp_path / "bias_mean_std_vs_dose.png"
+    b_npz = tmp_path / "bias_mean_std_vs_dose.npz"
+    assert b_png.is_file() and b_npz.is_file()
+    b_data = np.load(b_npz)
+    assert "slope_ir" in b_data and "slope_no" in b_data
+    assert (tmp_path / "std_model_bias.png").is_file()
+
+    # Dark files include exposure time
+    d_png = tmp_path / "dark_mean_std_vs_dose_E1p0s.png"
+    d_npz = tmp_path / "dark_mean_std_vs_dose_E1p0s.npz"
+    assert d_png.is_file() and d_npz.is_file()
+    d_data = np.load(d_npz)
+    assert "slope_ir" in d_data and "slope_no" in d_data
+    assert (tmp_path / "std_model_dark_E1p0s.png").is_file()
 
 
 def test_estimate_dose_rate_and_plot(tmp_path):
@@ -487,9 +495,11 @@ def test_dose_rate_full_pipeline(tmp_path):
     _plot_bias_dark_error(summary, tmp_path)
     _plot_dose_rate_effect(summary, tmp_path)
 
+    assert (tmp_path / "bias_mean_std_vs_dose.png").is_file()
+    assert (tmp_path / "dark_mean_std_vs_dose_E1p0s.png").is_file()
+    assert (tmp_path / "std_model_bias.png").is_file()
+    assert (tmp_path / "std_model_dark_E1p0s.png").is_file()
     for cal in ("bias", "dark"):
-        assert (tmp_path / f"{cal}_mean_std_vs_dose.png").is_file()
-        assert (tmp_path / f"{cal}_mean_std_vs_dose.npz").is_file()
         assert (tmp_path / f"dose_rate_effect_{cal}.png").is_file()
         assert (tmp_path / f"dose_rate_effect_{cal}.npz").is_file()
 
