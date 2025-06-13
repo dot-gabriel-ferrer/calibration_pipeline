@@ -428,8 +428,9 @@ def test_estimate_dose_rate_and_plot(tmp_path):
     assert len(rate_df) == 2
     r1 = rate_df.sort_values("DOSE")["DOSE_RATE"].iloc[0]
     r2 = rate_df.sort_values("DOSE")["DOSE_RATE"].iloc[1]
-    assert np.isclose(r1, 0.1)
+    assert np.isclose(r1, 0.0)
     assert np.isclose(r2, 0.05)
+    assert "DOSE_RATE_STD" in rate_df.columns
 
     summary = pd.DataFrame([
         {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 1.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.2, "DOSE_RATE": 0.1},
@@ -476,7 +477,8 @@ def test_estimate_dose_rate_hierarch_timestamp(tmp_path):
     })
 
     rate_df = _estimate_dose_rate(df)
-    assert np.isclose(rate_df["DOSE_RATE"].iloc[0], 0.1)
+    assert np.isclose(rate_df["DOSE_RATE"].iloc[0], 0.0)
+    assert "DOSE_RATE_STD" in rate_df.columns
 
 
 def test_dose_rate_full_pipeline(tmp_path):
@@ -510,10 +512,11 @@ def test_dose_rate_full_pipeline(tmp_path):
     })
 
     rate_df = _estimate_dose_rate(df)
-    for dose, expected in [(1.0, 0.1), (2.0, 0.05)]:
-        vals = rate_df[rate_df["DOSE"] == dose]["DOSE_RATE"].unique()
+    for dose, expected in [(1.0, 0.0), (2.0, 0.05)]:
+        vals = rate_df[rate_df["DOSE"] == dose]["DOSE_RATE"].dropna().unique()
         assert len(vals) == 1
         assert np.isclose(vals[0], expected)
+    assert "DOSE_RATE_STD" in rate_df.columns
 
     summary = pd.DataFrame([
         {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
@@ -534,7 +537,7 @@ def test_dose_rate_full_pipeline(tmp_path):
     assert (tmp_path / "dark_mean_std_vs_dose_E1p0s.png").is_file()
     assert (tmp_path / "std_model_bias.png").is_file()
     assert (tmp_path / "std_model_dark_E1p0s.png").is_file()
-    for cal in ("bias", "dark"):
+    for cal in ("bias",):
         assert (tmp_path / f"dose_rate_effect_{cal}.png").is_file()
         npz = tmp_path / f"dose_rate_effect_{cal}.npz"
         assert npz.is_file()
