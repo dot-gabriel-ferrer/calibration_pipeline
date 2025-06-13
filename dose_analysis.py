@@ -824,6 +824,11 @@ def _stage_base_level_diff(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
 def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     """Compute dynamic range and noise for each radiation dose.
 
+    Two figures are produced: one showing the 16-bit dynamic range and its
+    percentage reduction and another doing the same for the 12-bit range.  The
+    mean dynamic range is plotted with a shaded band representing one standard
+    deviation derived from the bias and dark standard deviations.
+
     Parameters
     ----------
     summary : pandas.DataFrame
@@ -854,6 +859,8 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     dr12_vals = []
     noise_vals = []
     noise_mag_vals = []
+    red16_vals = []
+    red12_vals = []
 
     for d in doses:
         b_rows = bias[bias["DOSE"] == d]
@@ -872,6 +879,8 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
         dr12_vals.append(dr12)
         noise_vals.append(noise)
         noise_mag_vals.append(noise_mag)
+        red16_vals.append(100.0 * (65536.0 - dr16) / 65536.0)
+        red12_vals.append(100.0 * (4096.0 - dr12) / 4096.0)
 
         rows.append(
             {
@@ -882,6 +891,8 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
                 "DR_12": dr12,
                 "NOISE_ADU": noise,
                 "NOISE_MAG": noise_mag,
+                "RED_16": red16_vals[-1],
+                "RED_12": red12_vals[-1],
             }
         )
 
@@ -895,22 +906,49 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
         dynamic_range_12=np.array(dr12_vals, dtype=float),
         noise_adu=np.array(noise_vals, dtype=float),
         noise_mag=np.array(noise_mag_vals, dtype=float),
+        reduction_16=np.array(red16_vals, dtype=float),
+        reduction_12=np.array(red12_vals, dtype=float),
     )
 
-    # Plot dynamic range vs dose
-    fig, ax = plt.subplots()
-    ax.plot(doses, dr16_vals, "o-", label="16-bit")
-    ax.plot(doses, dr12_vals, "s-", label="12-bit")
-    ax.axhline(65536, color="C2", ls="--", label="16-bit max")
-    ax.axhline(4096, color="C3", ls="--", label="12-bit max")
-    ax.set_xlabel("Dose [kRad]")
-    ax.set_ylabel("Dynamic range [ADU]")
-    ax.set_title("Dynamic range vs dose")
-    ax.legend()
-    ax.grid(True, ls="--", alpha=0.5)
-    fig.tight_layout()
-    fig.savefig(os.path.join(outdir, "dynamic_range_vs_dose.png"))
-    plt.close(fig)
+    dr_err = np.array(noise_vals, dtype=float)
+
+    # 16-bit dynamic range
+    fig16, (ax16, ax16_red) = plt.subplots(2, 1, sharex=True)
+    ax16.plot(doses, dr16_vals, "o-")
+    ax16.fill_between(doses, np.array(dr16_vals) - dr_err, np.array(dr16_vals) + dr_err, alpha=0.2)
+    ax16.axhline(65536, color="C2", ls="--", label="16-bit max")
+    ax16.set_ylabel("Dynamic range [ADU]")
+    ax16.set_title("16-bit dynamic range vs dose")
+    ax16.grid(True, ls="--", alpha=0.5)
+    ax16.legend()
+
+    ax16_red.plot(doses, red16_vals, "o-", color="C1")
+    ax16_red.set_xlabel("Dose [kRad]")
+    ax16_red.set_ylabel("Reduction [%]")
+    ax16_red.grid(True, ls="--", alpha=0.5)
+
+    fig16.tight_layout()
+    fig16.savefig(os.path.join(outdir, "dynamic_range_vs_dose_16.png"))
+    plt.close(fig16)
+
+    # 12-bit dynamic range
+    fig12, (ax12, ax12_red) = plt.subplots(2, 1, sharex=True)
+    ax12.plot(doses, dr12_vals, "s-")
+    ax12.fill_between(doses, np.array(dr12_vals) - dr_err, np.array(dr12_vals) + dr_err, alpha=0.2)
+    ax12.axhline(4096, color="C3", ls="--", label="12-bit max")
+    ax12.set_ylabel("Dynamic range [ADU]")
+    ax12.set_title("12-bit dynamic range vs dose")
+    ax12.grid(True, ls="--", alpha=0.5)
+    ax12.legend()
+
+    ax12_red.plot(doses, red12_vals, "o-", color="C1")
+    ax12_red.set_xlabel("Dose [kRad]")
+    ax12_red.set_ylabel("Reduction [%]")
+    ax12_red.grid(True, ls="--", alpha=0.5)
+
+    fig12.tight_layout()
+    fig12.savefig(os.path.join(outdir, "dynamic_range_vs_dose_12.png"))
+    plt.close(fig12)
 
     return pd.DataFrame(rows)
 

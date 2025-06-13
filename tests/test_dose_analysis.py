@@ -202,7 +202,8 @@ def test_dynamic_range_analysis_outputs(tmp_path):
 
     df = _dynamic_range_analysis(summary, str(tmp_path))
 
-    assert (tmp_path / "dynamic_range_vs_dose.png").is_file()
+    assert (tmp_path / "dynamic_range_vs_dose_16.png").is_file()
+    assert (tmp_path / "dynamic_range_vs_dose_12.png").is_file()
     assert (tmp_path / "dynamic_range.npz").is_file()
     assert set(df.columns) == {
         "DOSE",
@@ -212,6 +213,8 @@ def test_dynamic_range_analysis_outputs(tmp_path):
         "DR_12",
         "NOISE_ADU",
         "NOISE_MAG",
+        "RED_16",
+        "RED_12",
     }
     row = df.iloc[0]
     expected_noise = np.sqrt(1.0 ** 2 + 2.0 ** 2)
@@ -219,6 +222,7 @@ def test_dynamic_range_analysis_outputs(tmp_path):
     assert np.isclose(row["DARK_MEAN"], 5.0)
     assert np.isclose(row["DR_16"], 65536 - 15.0)
     assert np.isclose(row["NOISE_ADU"], expected_noise)
+    assert np.isclose(row["RED_16"], 100 * 15.0 / 65536.0)
 
 
 def test_fit_base_level_trend_outputs(tmp_path, monkeypatch):

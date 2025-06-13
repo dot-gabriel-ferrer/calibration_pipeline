@@ -22,11 +22,11 @@ per-dose means.
 
 Dynamic range reduction plots
 -----------------------------
-`dynamic_range_vs_dose.png` shows how the available range decreases with dose.
-The plot includes two curves: the remaining range assuming a 16‑bit detector
-(blue circles) and a 12‑bit detector (orange squares). Dashed horizontal lines
-mark the ideal maximum ranges (65536 ADU and 4096 ADU respectively). Reading the
-plot from left to right reveals how much of the range is lost as dose increases.
+`dynamic_range_vs_dose_16.png` and `dynamic_range_vs_dose_12.png` show how the
+available range decreases with dose for 16‑bit and 12‑bit readout
+respectively.  Each figure includes a subplot with the percentage reduction
+relative to the corresponding ideal range (65536 ADU or 4096 ADU).  A shaded
+region illustrates the one sigma uncertainty of the dynamic range.
 
 Slope of the base level increase
 --------------------------------
