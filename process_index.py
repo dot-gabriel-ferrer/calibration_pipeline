@@ -193,10 +193,40 @@ def master_dark_flat(
     flat_df: pd.DataFrame,
     outdir_dark: str,
     outdir_flat: str,
+    bias_maps: dict[float, np.ndarray] | None = None,
 ) -> tuple[dict[tuple[float, float], np.ndarray], dict[tuple[float, float], np.ndarray]]:
-    """Generate master darks and flats grouped by temperature and exposure."""
+    """Generate master darks and flats grouped by temperature and exposure.
+
+    If ``bias_maps`` is provided, each dark frame is bias-corrected using the
+    bias map with the closest temperature before combining.
+    """
     os.makedirs(outdir_dark, exist_ok=True)
     os.makedirs(outdir_flat, exist_ok=True)
+
+    def _make_master_from_arrays(arrays: list[np.ndarray], temps: list[float] | None = None, exps: list[float] | None = None) -> tuple[np.ndarray, fits.Header]:
+        stack = np.stack(arrays, axis=0)
+        master = np.mean(stack, axis=0)
+
+        hdr = fits.Header()
+        hdr["NSOURCE"] = stack.shape[0]
+        hdr["MEAN"] = float(np.mean(stack))
+        hdr["MEDIAN"] = float(np.median(stack))
+        hdr["STD"] = float(np.std(stack))
+        hdr["DATAMIN"] = float(np.min(stack))
+        hdr["DATAMAX"] = float(np.max(stack))
+        if temps:
+            temps = [t for t in temps if t is not None and np.isfinite(t)]
+            if temps:
+                hdr["TMIN"] = float(np.min(temps))
+                hdr["TMAX"] = float(np.max(temps))
+                hdr["TAVG"] = float(np.mean(temps))
+        if exps:
+            exps = [e for e in exps if e is not None and np.isfinite(e)]
+            if exps:
+                hdr["EMIN"] = float(np.min(exps))
+                hdr["EMAX"] = float(np.max(exps))
+                hdr["EAVG"] = float(np.mean(exps))
+        return master, hdr
 
     dark_groups: dict[tuple[float, float, str], list[dict]] = defaultdict(list)
 
@@ -219,10 +249,16 @@ def master_dark_flat(
     per_group_temps: dict[tuple[float, float], list[float]] = defaultdict(list)
 
     for (t, e, attempt), entries in tqdm(dark_groups.items(), desc="Combining dark per attempt"):
-        paths = [e["path"] for e in entries]
         temps = [e["temp"] for e in entries]
         exps = [e["exp"] for e in entries]
-        master, hdr = _make_mean_master(paths, temps=temps, exps=exps)
+        arrays: list[np.ndarray] = []
+        for ent in entries:
+            data = _load_fits(ent["path"])
+            if bias_maps:
+                btemp = min(bias_maps.keys(), key=lambda bt: abs(bt - ent["temp"]))
+                data = data - bias_maps[btemp]
+            arrays.append(data)
+        master, hdr = _make_master_from_arrays(arrays, temps=temps, exps=exps)
         name = f"master_dark_{attempt}_T{t:.1f}_E{e:.1f}.fits"
         fits.writeto(os.path.join(outdir_dark, name), master.astype(np.float32), hdr, overwrite=True)
         per_group_masters[(t, e)].append(master)
@@ -423,9 +459,11 @@ def main(index_csv: str, output_dir: str) -> None:
     master_dir = os.path.join(output_dir, "masters")
     bias_masters = master_bias_by_temp(bias_df, os.path.join(master_dir, "bias"))
     dark_masters, flat_masters = master_dark_flat(
-        dark_df, flat_df,
+        dark_df,
+        flat_df,
         os.path.join(master_dir, "darks"),
         os.path.join(master_dir, "flats"),
+        bias_maps=bias_masters,
     )
 
     stats_csv = os.path.join(output_dir, "frame_stats.csv")
