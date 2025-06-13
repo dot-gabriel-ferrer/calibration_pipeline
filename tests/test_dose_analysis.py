@@ -334,6 +334,39 @@ def test_relative_precision_analysis_npz_and_plots(tmp_path, monkeypatch):
     assert df[df["STAGE"] == "pre"]["NOISE16_DIFF"].iloc[0] == 0.0
 
 
+def test_relative_precision_analysis_minimal(tmp_path, monkeypatch):
+    summary = pd.DataFrame([
+        {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 10.0, "STD": 0.5},
+        {"STAGE": "pre", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 2.0, "STD": 0.1},
+        {"STAGE": "radiating", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 11.0, "STD": 0.6},
+        {"STAGE": "radiating", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 3.0, "STD": 0.2},
+        {"STAGE": "post", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 10.5, "STD": 0.55},
+        {"STAGE": "post", "CALTYPE": "DARK", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 2.5, "STD": 0.15},
+    ])
+
+    saved = []
+
+    def fake_savefig(self, path, *a, **k):
+        saved.append(os.path.basename(path))
+
+    monkeypatch.setattr("matplotlib.figure.Figure.savefig", fake_savefig)
+
+    df = _relative_precision_analysis(summary, tmp_path)
+
+    expected_pngs = {
+        "relative_noise_vs_dose_16.png",
+        "relative_noise_vs_dose_12.png",
+        "relative_mag_err_vs_dose_16.png",
+        "relative_mag_err_vs_dose_12.png",
+    }
+    assert expected_pngs.issubset(set(saved))
+    for name in expected_pngs:
+        assert (tmp_path / name.replace(".png", ".npz")).is_file()
+    assert (tmp_path / "relative_precision.npz").is_file()
+    assert (tmp_path / "pre_vs_post_relative_precision.npz").is_file()
+    assert len(df) == 3
+
+
 def test_plot_bias_dark_error_outputs(tmp_path):
     summary = pd.DataFrame([
         {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
