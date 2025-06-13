@@ -234,7 +234,7 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
 
     os.makedirs(outdir, exist_ok=True)
 
-    irrad = summary[summary["STAGE"] == "radiating"]
+    irrad = summary[summary["STAGE"] == "during"]
 
     min_dose = irrad["DOSE"].min() if not irrad.empty else 0.0
     max_dose = irrad["DOSE"].max() if not irrad.empty else 0.0
@@ -248,7 +248,7 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
         if cal_df.empty:
             continue
 
-        ir_df = cal_df[cal_df["STAGE"] == "radiating"]
+        ir_df = cal_df[cal_df["STAGE"] == "during"]
         ni_df = cal_df[cal_df["STAGE"].isin(["pre", "post"])]
 
         def _fit(df: pd.DataFrame) -> tuple[float, float]:
@@ -272,10 +272,10 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
         fig, ax1 = plt.subplots()
         ax2 = ax1.twinx()
 
-        ax1.plot(x, mean, "o-", label="mean", color="C0")
-        ax2.plot(x, std, "s-", label="std", color="C1")
-        ax2.plot(x, fit_ir, "--", color="C2", label="fit irradiating")
-        ax2.plot(x, fit_no, "--", color="C3", label="fit no irradiating")
+        ax1.plot(x[1:-1], mean[1:-1], "o-", label="mean", color="C0")
+        ax2.plot(x[1:-1], std[1:-1], "s-", label="std", color="C1")
+        ax2.plot(x[1:-1], fit_ir[1:-1], "--", color="C2", label="fit irradiating")
+        ax2.plot(x[1:-1], fit_no[1:-1], "--", color="C3", label="fit no irradiating")
 
         ax1.set_xlabel("Dose [kRad]")
         ax1.set_ylabel("Mean ADU", color="C0")
