@@ -443,6 +443,40 @@ def test_estimate_dose_rate_and_plot(tmp_path):
     npz = tmp_path / "dose_rate_effect_bias.npz"
     assert png.is_file()
     assert npz.is_file()
+    data = np.load(npz)
+    assert "slope_mean_ir" in data
+    assert np.isclose(data["slope_mean_ir"], -20)
+    assert np.isclose(data["intercept_mean_ir"], 4)
+    assert np.isclose(data["slope_std_ir"], -2)
+    assert np.isclose(data["intercept_std_ir"], 0.4)
+
+
+def test_estimate_dose_rate_hierarch_timestamp(tmp_path):
+    ddir = tmp_path / "1kR"
+    ddir.mkdir()
+    f1 = ddir / "f1.fits"
+    f2 = ddir / "f2.fits"
+    _make_fits(f1, 1)
+    _make_fits(f2, 1)
+    with fits.open(f1, mode="update") as h:
+        h[0].header.pop("TIMESTAMP", None)
+        h[0].header["HIERARCH TIMESTAMP"] = 0
+    with fits.open(f2, mode="update") as h:
+        h[0].header.pop("TIMESTAMP", None)
+        h[0].header["HIERARCH TIMESTAMP"] = 10
+
+    df = pd.DataFrame({
+        "PATH": [str(f1), str(f2)],
+        "CALTYPE": ["BIAS", "BIAS"],
+        "STAGE": ["radiating", "radiating"],
+        "VACUUM": ["air", "air"],
+        "TEMP": [10.0, 10.0],
+        "ZEROFRACTION": [0.0, 0.0],
+        "BADFITS": [False, False],
+    })
+
+    rate_df = _estimate_dose_rate(df)
+    assert np.isclose(rate_df["DOSE_RATE"].iloc[0], 0.1)
 
 
 def test_dose_rate_full_pipeline(tmp_path):
@@ -502,5 +536,14 @@ def test_dose_rate_full_pipeline(tmp_path):
     assert (tmp_path / "std_model_dark_E1p0s.png").is_file()
     for cal in ("bias", "dark"):
         assert (tmp_path / f"dose_rate_effect_{cal}.png").is_file()
-        assert (tmp_path / f"dose_rate_effect_{cal}.npz").is_file()
+        npz = tmp_path / f"dose_rate_effect_{cal}.npz"
+        assert npz.is_file()
+        data = np.load(npz)
+        for key in [
+            "slope_mean_ir",
+            "intercept_mean_ir",
+            "slope_std_ir",
+            "intercept_std_ir",
+        ]:
+            assert key in data
 
