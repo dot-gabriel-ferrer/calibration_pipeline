@@ -185,6 +185,8 @@ def _estimate_dose_rate(df: pd.DataFrame) -> pd.DataFrame:
                 try:
                     hdr = fits.getheader(p)
                     ts = hdr.get("TIMESTAMP")
+                    if ts is None:
+                        ts = hdr.get("HIERARCH TIMESTAMP")
                     if ts is not None:
                         ts = float(ts)
                         if np.isfinite(ts):
@@ -462,12 +464,38 @@ def _plot_dose_rate_effect(summary: pd.DataFrame, outdir: str) -> None:
         ax2.plot(ir["DOSE_RATE"], ir["STD"], "o", label="std irradiated", color="C1")
         ax2.plot(non["DOSE_RATE"], non["STD"], "s", label="std non irr.", color="C3")
 
+        def _fit(x: pd.Series, y: pd.Series) -> tuple[float, float]:
+            if len(x) < 2:
+                return float("nan"), float("nan")
+            coeff = np.polyfit(x.astype(float), y.astype(float), 1)
+            return float(coeff[0]), float(coeff[1])
+
+        a_m_ir, b_m_ir = _fit(ir["DOSE_RATE"], ir["MEAN"])
+        a_m_no, b_m_no = _fit(non["DOSE_RATE"], non["MEAN"])
+        a_s_ir, b_s_ir = _fit(ir["DOSE_RATE"], ir["STD"])
+        a_s_no, b_s_no = _fit(non["DOSE_RATE"], non["STD"])
+
+        if len(df) > 0:
+            x_fit = np.linspace(df["DOSE_RATE"].min(), df["DOSE_RATE"].max(), 100)
+            ax1.plot(x_fit, a_m_ir * x_fit + b_m_ir, "C0--", label="fit mean irr.")
+            ax1.plot(x_fit, a_m_no * x_fit + b_m_no, "C2:", label="fit mean non irr.")
+            ax2.plot(x_fit, a_s_ir * x_fit + b_s_ir, "C1--", label="fit std irr.")
+            ax2.plot(x_fit, a_s_no * x_fit + b_s_no, "C3:", label="fit std non irr.")
+
+        eq_text = (
+            f"mean irr: {a_m_ir:.3g}*R+{b_m_ir:.3g}\n"
+            f"mean non: {a_m_no:.3g}*R+{b_m_no:.3g}\n"
+            f"std irr: {a_s_ir:.3g}*R+{b_s_ir:.3g}\n"
+            f"std non: {a_s_no:.3g}*R+{b_s_no:.3g}"
+        )
+
         ax1.set_xlabel("Dose rate [kRad/s]")
         ax1.set_ylabel("Mean ADU", color="C0")
         ax2.set_ylabel("STD ADU", color="C1")
         ax1.grid(True, ls="--", alpha=0.5)
         fig.suptitle(f"{cal} mean/std vs dose rate")
         fig.tight_layout()
+        fig.text(0.98, 0.5, eq_text, ha="right", va="center")
 
         lines, labels = [], []
         for ax in (ax1, ax2):
@@ -489,6 +517,14 @@ def _plot_dose_rate_effect(summary: pd.DataFrame, outdir: str) -> None:
             rate_no=non["DOSE_RATE"].to_numpy(float),
             mean_no=non["MEAN"].to_numpy(float),
             std_no=non["STD"].to_numpy(float),
+            slope_mean_ir=a_m_ir,
+            intercept_mean_ir=b_m_ir,
+            slope_mean_no=a_m_no,
+            intercept_mean_no=b_m_no,
+            slope_std_ir=a_s_ir,
+            intercept_std_ir=b_s_ir,
+            slope_std_no=a_s_no,
+            intercept_std_no=b_s_no,
         )
 
 
