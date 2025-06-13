@@ -81,7 +81,7 @@ def main(dataset_root: str, output_dir: str) -> None:
         for name in sorted(os.listdir(irrad_root)):
             path = os.path.join(irrad_root, name)
             if os.path.isdir(path):
-                stages.append((path, "during"))
+                stages.append((path, "radiating"))
 
     post = os.path.join(dataset_root, "Postirradiation")
     if os.path.isdir(post):
@@ -103,7 +103,7 @@ def main(dataset_root: str, output_dir: str) -> None:
     if not os.path.isfile(rad_log):
         rad_log = ""
 
-    radiation_analysis.main(index_csv, rad_log, output_dir, stages=["pre", "during", "post"])
+    radiation_analysis.main(index_csv, rad_log, output_dir, stages=["pre", "radiating", "post"])
 
 
 if __name__ == "__main__":

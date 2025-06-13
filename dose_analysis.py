@@ -122,7 +122,7 @@ def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None],
         unit="file",
         leave=False,
     ):
-        if row["STAGE"] == "during":
+        if row["STAGE"] == "radiating":
             d = _dose_from_path(row["PATH"])
             if d is not None:
                 during_doses.append(d)
@@ -177,7 +177,7 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
 
             fig, ax = plt.subplots()
             stats_lines = []
-            for stage in ("pre", "during", "post"):
+            for stage in ("pre", "radiating", "post"):
                 stage_df = sub[sub["STAGE"] == stage]
                 if stage_df.empty:
                     continue
@@ -213,7 +213,7 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
 
 
 def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
-    """Return estimated photometric precision for ``during`` bias/dark.
+    """Return estimated photometric precision for ``radiating`` bias/dark.
 
     The returned ``DataFrame`` now also includes the standard deviation of
     the magnitude error for each dose (``MAG_ERR_STD``).  The deviation is
@@ -221,7 +221,7 @@ def _compute_photometric_precision(summary: pd.DataFrame) -> pd.DataFrame:
     frame combination at the same radiation dose.
     """
 
-    df = summary[summary["STAGE"] == "during"]
+    df = summary[summary["STAGE"] == "radiating"]
     bias = df[df["CALTYPE"] == "BIAS"]
     dark = df[df["CALTYPE"] == "DARK"]
     doses = sorted(set(bias["DOSE"]) & set(dark["DOSE"]))
@@ -333,8 +333,8 @@ def _pixel_precision_analysis(
     groups: Dict[Tuple[str, str, float, float | None], List[str]], outdir: str
 ) -> pd.DataFrame:
     """Generate per-pixel magnitude and ADU error maps for each dose."""
-    bias_groups = {k: v for k, v in groups.items() if k[0] == "during" and k[1] == "BIAS"}
-    dark_groups = {k: v for k, v in groups.items() if k[0] == "during" and k[1] == "DARK"}
+    bias_groups = {k: v for k, v in groups.items() if k[0] == "radiating" and k[1] == "BIAS"}
+    dark_groups = {k: v for k, v in groups.items() if k[0] == "radiating" and k[1] == "DARK"}
     doses = sorted(set(k[2] for k in bias_groups) & set(k[2] for k in dark_groups))
     if not doses:
         return
@@ -476,7 +476,7 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
     value with a symmetric colour scale.
     """
     df = summary
-    during = df[df["STAGE"] == "during"]
+    during = df[df["STAGE"] == "radiating"]
     pre = df[df["STAGE"] == "pre"]
     post = df[df["STAGE"] == "post"]
     if during.empty:
@@ -499,7 +499,7 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
             ref_row = p_pre.iloc[0]
             targ_row = dmin.iloc[0]
             ref_path = _master_path(cal, "pre", ref_row["DOSE"], ref_row["EXPTIME"], master_dir)
-            targ_path = _master_path(cal, "during", targ_row["DOSE"], targ_row["EXPTIME"], master_dir)
+            targ_path = _master_path(cal, "radiating", targ_row["DOSE"], targ_row["EXPTIME"], master_dir)
             if os.path.isfile(ref_path) and os.path.isfile(targ_path):
                 ref = fits.getdata(ref_path)
                 targ = fits.getdata(targ_path)
@@ -547,7 +547,7 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
             # Heatmap of post minus last during
             ref_row = dmax.iloc[0]
             targ_row = p_post.iloc[0]
-            ref_path = _master_path(cal, "during", ref_row["DOSE"], ref_row["EXPTIME"], master_dir)
+            ref_path = _master_path(cal, "radiating", ref_row["DOSE"], ref_row["EXPTIME"], master_dir)
             targ_path = _master_path(cal, "post", targ_row["DOSE"], targ_row["EXPTIME"], master_dir)
             if os.path.isfile(ref_path) and os.path.isfile(targ_path):
                 ref = fits.getdata(ref_path)
@@ -596,7 +596,7 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
 
 def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
     """Fit a linear model of mean value vs dose and store coefficients."""
-    df = summary[summary["STAGE"] == "during"]
+    df = summary[summary["STAGE"] == "radiating"]
     if df.empty:
         return
     os.makedirs(outdir, exist_ok=True)

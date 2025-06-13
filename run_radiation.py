@@ -22,7 +22,7 @@ def _gather_stages(base: str) -> list[tuple[str, str]]:
         for name in sorted(os.listdir(irrad_root)):
             path = os.path.join(irrad_root, name)
             if os.path.isdir(path):
-                stages.append((path, "during"))
+                stages.append((path, "radiating"))
 
     post = os.path.join(base, "Postirradiation")
     if os.path.isdir(post):
@@ -44,8 +44,8 @@ def main() -> None:
     parser.add_argument(
         "--stages",
         nargs="*",
-        default=["pre", "during", "post"],
-        help="Stages to analyse (pre, during, post)",
+        default=["pre", "radiating", "post"],
+        help="Stages to analyse (pre, radiating, post)",
     )
     args = parser.parse_args()
 

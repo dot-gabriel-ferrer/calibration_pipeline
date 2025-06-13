@@ -145,6 +145,6 @@ def test_infer_stage_during_directory(tmp_path):
         / "DuringIrradiation"
         / "Bias"
     )
-    assert _infer_stage(str(path)) == "during"
+    assert _infer_stage(str(path)) == "radiating"
 
 

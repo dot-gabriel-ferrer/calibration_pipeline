@@ -33,7 +33,7 @@ def _infer_stage(path: str) -> Optional[str]:
         if "pre" in low:
             return "pre"
         if "during" in low:
-            return "during"
+            return "radiating"
         if "post" in low:
             return "post"
     return None
@@ -196,7 +196,7 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
     )
     parser.add_argument("output_csv", help="Output CSV path")
     parser.add_argument("positional", nargs="*", help=argparse.SUPPRESS)
-    parser.add_argument("--stage", choices=["pre", "during", "post"], help="Radiation stage")
+    parser.add_argument("--stage", choices=["pre", "radiating", "post"], help="Radiation stage")
     parser.add_argument("--vacuum", help="Vacuum state")
     parser.add_argument("--search-depth", type=int, default=6, help="Maximum directory depth when searching for attempts")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
