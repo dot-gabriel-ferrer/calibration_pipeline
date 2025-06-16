@@ -287,7 +287,24 @@ def run_pipeline(
     output_dir: str,
     *,
     ignore_temp: bool = False,
+    verbose: bool = False,
 ) -> None:
+    """Run the complete irradiation workflow.
+
+    Parameters
+    ----------
+    dataset_root : str
+        Path to the dataset root.
+    radiation_log : str
+        Location of ``radiationLogCompleto.csv``.
+    output_dir : str
+        Directory where results are stored.
+    ignore_temp : bool, optional
+        Combine frames ignoring their temperature groups.
+    verbose : bool, optional
+        Forward the verbose flag to submodules for detailed logs.
+    """
+
     logger.info("Starting radiation pipeline")
     _ensure_conversion(dataset_root)
     index_csv = os.path.join(dataset_root, "index.csv")
@@ -312,7 +329,7 @@ def run_pipeline(
     precision_dir = os.path.join(output_dir, "precision")
     os.makedirs(precision_dir, exist_ok=True)
     logger.info("Computing precision metrics")
-    dose_analysis.main(index_csv, precision_dir)
+    dose_analysis.main(index_csv, precision_dir, verbose)
 
 
 def main() -> None:
@@ -336,6 +353,7 @@ def main() -> None:
         args.radiation_log,
         args.output_dir,
         ignore_temp=args.ignore_temp,
+        verbose=args.verbose,
     )
 
 
