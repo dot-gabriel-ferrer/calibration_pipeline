@@ -33,6 +33,7 @@ import fit_radiation_model
 from operation_analysis import _plot_intensity_stats, _parse_rads
 import dose_analysis
 from utils import index_dataset
+import utils
 from tqdm import tqdm
 from bias_pipeline.bias_pipeline.steps.step4_generate_synthetic_bias import (
     generate_synthetic_bias,
@@ -364,7 +365,8 @@ def run_pipeline(
     precision_dir = os.path.join(output_dir, "precision")
     os.makedirs(precision_dir, exist_ok=True)
     logger.info("Computing precision metrics")
-    dose_analysis.main(index_csv, precision_dir, verbose)
+    dose_map = utils.read_radiation_log(radiation_log)
+    dose_analysis.main(index_csv, precision_dir, verbose, dose_table=dose_map)
 
 
 def main() -> None:

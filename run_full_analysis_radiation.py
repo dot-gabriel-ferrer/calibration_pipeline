@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 
 import radiation_analysis
 import dose_analysis
+import utils
 from run_full_radiation_pipeline import _ensure_conversion
 
 
@@ -138,7 +139,8 @@ def run_pipeline(dataset_root: str, output_dir: str, *, ignore_temp: bool = Fals
     radiation_analysis.main(index_csv, rad_csv, stage_dir, stages=["radiating"], ignore_temp=ignore_temp)
 
     dose_dir = os.path.join(output_dir, "dose_analysis")
-    dose_analysis.main(index_csv, dose_dir, verbose)
+    dose_map = utils.read_radiation_log(rad_csv)
+    dose_analysis.main(index_csv, dose_dir, verbose, dose_table=dose_map)
 
     summary_csv = os.path.join(dose_dir, "dose_summary.csv")
     if os.path.isfile(summary_csv):
