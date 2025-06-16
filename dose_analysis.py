@@ -82,11 +82,11 @@ def _temperature_from_header(path: str) -> float | None:
         if "TEMP" in hdr:
             return float(hdr["TEMP"])
     except Exception as exc:
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Error reading TEMP from %s: %s", path, exc)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Error reading TEMP from %s: %s", path, exc)
         return None
-    if logger.isEnabledFor(logging.INFO):
-        logger.info("Temperature missing for %s", path)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Temperature missing for %s", path)
     return None
 
 
