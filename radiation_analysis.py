@@ -127,16 +127,34 @@ def _make_master_from_arrays(
     bias_subtracted: bool = False,
 ) -> Tuple[np.ndarray, fits.Header]:
     """Compute mean master image from arrays with optional metadata."""
-    stack = np.stack(arrays, axis=0)
-    master = np.mean(stack, axis=0)
+    from utils.incremental_stats import incremental_mean_std
+
+    mean = None
+    m2 = None
+    count = 0
+    datamin = np.inf
+    datamax = -np.inf
+
+    for arr in arrays:
+        datamin = min(datamin, float(np.min(arr)))
+        datamax = max(datamax, float(np.max(arr)))
+        mean, m2, count = incremental_mean_std(arr, mean, m2, count)
+
+    master = mean.astype(np.float32)
 
     hdr = fits.Header()
-    hdr["NSOURCE"] = stack.shape[0]
-    hdr["MEAN"] = float(np.mean(stack))
-    hdr["MEDIAN"] = float(np.median(stack))
-    hdr["STD"] = float(np.std(stack))
-    hdr["DATAMIN"] = float(np.min(stack))
-    hdr["DATAMAX"] = float(np.max(stack))
+    hdr["NSOURCE"] = count
+    global_mean = float(np.mean(master))
+    hdr["MEAN"] = global_mean
+    hdr["MEDIAN"] = float(np.median(master))
+    if count > 0:
+        total_var = np.sum(m2) + count * np.sum((master - global_mean) ** 2)
+        denom = count * master.size - 1 if count * master.size > 1 else 1
+        hdr["STD"] = float(np.sqrt(total_var / denom))
+    else:
+        hdr["STD"] = 0.0
+    hdr["DATAMIN"] = datamin
+    hdr["DATAMAX"] = datamax
     if temps:
         temps = [t for t in temps if t is not None and np.isfinite(t)]
         if temps:
@@ -175,19 +193,47 @@ def master_by_temp(
 
     masters: Dict[float, Tuple[np.ndarray, fits.Header]] = {}
     for temp, files in temp_groups.items():
-        arrays: List[np.ndarray] = []
+        from utils.incremental_stats import incremental_mean_std
+
+        mean = None
+        m2 = None
+        count = 0
+        datamin = np.inf
+        datamax = -np.inf
         temps_for_hdr: List[float] = []
+
         for f in files:
-            data = fits.getdata(f).astype(np.float32)
-            hdr = fits.getheader(f)
+            data, hdr = _load_frame(f)
             temps_for_hdr.append(hdr.get("TEMP"))
             if bias_maps:
                 btemp = min(bias_maps.keys(), key=lambda bt: abs(bt - temp))
                 data = data - bias_maps[btemp]
-            arrays.append(data)
-        master, hdr = _make_master_from_arrays(
-            arrays, temps=temps_for_hdr, bias_subtracted=bias_maps is not None
-        )
+            datamin = min(datamin, float(np.min(data)))
+            datamax = max(datamax, float(np.max(data)))
+            mean, m2, count = incremental_mean_std(data, mean, m2, count)
+
+        master = mean.astype(np.float32)
+
+        hdr = fits.Header()
+        hdr["NSOURCE"] = count
+        gmean = float(np.mean(master))
+        hdr["MEAN"] = gmean
+        hdr["MEDIAN"] = float(np.median(master))
+        if count > 0:
+            total_var = np.sum(m2) + count * np.sum((master - gmean) ** 2)
+            denom = count * master.size - 1 if count * master.size > 1 else 1
+            hdr["STD"] = float(np.sqrt(total_var / denom))
+        else:
+            hdr["STD"] = 0.0
+        hdr["DATAMIN"] = datamin
+        hdr["DATAMAX"] = datamax
+        temps_val = [t for t in temps_for_hdr if t is not None and np.isfinite(t)]
+        if temps_val:
+            hdr["TMIN"] = float(np.min(temps_val))
+            hdr["TMAX"] = float(np.max(temps_val))
+            hdr["TAVG"] = float(np.mean(temps_val))
+        if bias_maps:
+            hdr["BIASSUB"] = True
         masters[temp] = (master, hdr)
     return masters
 
