@@ -29,6 +29,7 @@ from tqdm import tqdm
 
 from operation_analysis import _parse_rads
 from process_index import _make_mean_master, _parse_temp_exp_from_path
+from utils import read_radiation_log
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,7 @@ def _stack_stats(paths: List[str]) -> Tuple[np.ndarray, np.ndarray]:
 
 def _group_paths(
     df: pd.DataFrame,
+    dose_table: Dict[int, float] | None = None,
 ) -> Dict[Tuple[str, str, float, float | None], List[str]]:
     groups: Dict[Tuple[str, str, float, float | None], List[str]] = defaultdict(list)
     during_doses: List[float] = []
@@ -188,7 +190,16 @@ def _group_paths(
         leave=False,
     ):
         if row["STAGE"] in irrad_stages:
-            d = _dose_from_path(row["PATH"])
+            d = None
+            if dose_table is not None:
+                try:
+                    fr = fits.getheader(row["PATH"]).get("FRAMENUM")
+                    if fr is not None:
+                        d = dose_table.get(int(fr))
+                except Exception:
+                    pass
+            if d is None:
+                d = _dose_from_path(row["PATH"])
             if d is not None:
                 during_doses.append(d)
 
@@ -204,7 +215,16 @@ def _group_paths(
     ):
         stage = row["STAGE"]
         cal = row["CALTYPE"]
-        dose = _dose_from_path(row["PATH"])
+        dose = None
+        if dose_table is not None:
+            try:
+                fr = fits.getheader(row["PATH"]).get("FRAMENUM")
+                if fr is not None:
+                    dose = dose_table.get(int(fr))
+            except Exception:
+                pass
+        if dose is None:
+            dose = _dose_from_path(row["PATH"])
         if stage == "pre":
             dose = min_dose
         elif stage == "post":
@@ -221,7 +241,7 @@ def _group_paths(
     return groups
 
 
-def _estimate_dose_rate(df: pd.DataFrame) -> pd.DataFrame:
+def _estimate_dose_rate(df: pd.DataFrame, dose_table: Dict[int, float] | None = None) -> pd.DataFrame:
     """Return dose rate statistics for each file group.
 
     The function reads ``TIMESTAMP`` from every FITS file, sorts all files by
@@ -237,7 +257,7 @@ def _estimate_dose_rate(df: pd.DataFrame) -> pd.DataFrame:
     without valid timestamps receive ``NaN`` values.
     """
 
-    groups = _group_paths(df)
+    groups = _group_paths(df, dose_table)
 
     file_rows: List[dict[str, float]] = []
     for (stage, cal, dose, exp), paths in groups.items():
@@ -1836,7 +1856,14 @@ def _relative_precision_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataF
     return df
 
 
-def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
+def main(
+    index_csv: str,
+    output_dir: str,
+    verbose: bool = False,
+    *,
+    radiation_log: str | None = None,
+    dose_table: Dict[int, float] | None = None,
+) -> None:
     if verbose:
         logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     else:
@@ -1846,9 +1873,12 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
     df = pd.read_csv(index_csv)
     df = df[df.get("BADFITS", False) == False]
 
+    if dose_table is None and radiation_log is not None:
+        dose_table = read_radiation_log(radiation_log)
+
     logger.info("Grouping input files")
 
-    groups = _group_paths(df)
+    groups = _group_paths(df, dose_table)
 
     logger.info("Generating master frames")
 
@@ -1915,7 +1945,7 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
     summary = pd.DataFrame.from_records(records)
     logger.info("Estimating dose rates")
 
-    rate_df = _estimate_dose_rate(df)
+    rate_df = _estimate_dose_rate(df, dose_table)
     if not rate_df.empty:
         summary = summary.merge(
             rate_df, on=["STAGE", "CALTYPE", "DOSE", "EXPTIME"], how="left"

@@ -39,6 +39,40 @@ def test_dose_parsing():
     assert _dose_from_path("no_dose/file.fits") is None
 
 
+def test_group_paths_and_rate_from_table(tmp_path):
+    f0 = tmp_path / "f0.fits"
+    f1 = tmp_path / "f1.fits"
+    _make_fits(f0, 1, ts=0)
+    _make_fits(f1, 1, ts=10)
+    for idx, fp in enumerate([f0, f1]):
+        with fits.open(fp, mode="update") as h:
+            h[0].header["FRAMENUM"] = idx
+
+    df = pd.DataFrame(
+        {
+            "PATH": [str(f0), str(f1)],
+            "CALTYPE": ["BIAS", "BIAS"],
+            "STAGE": ["radiating", "radiating"],
+            "VACUUM": ["air", "air"],
+            "TEMP": [10.0, 10.0],
+            "ZEROFRACTION": [0.0, 0.0],
+            "BADFITS": [False, False],
+        }
+    )
+
+    dose_map = {0: 0.5, 1: 1.0}
+
+    groups = _group_paths(df, dose_map)
+    assert ("radiating", "BIAS", 0.5, 1.0) in groups
+    assert ("radiating", "BIAS", 1.0, 1.0) in groups
+
+    rate_df = _estimate_dose_rate(df, dose_map)
+    rate_df = rate_df.sort_values("DOSE").reset_index(drop=True)
+    assert len(rate_df) == 2
+    assert np.isnan(rate_df.loc[0, "DOSE_RATE"])
+    assert np.isclose(rate_df.loc[1, "DOSE_RATE"], 0.05)
+
+
 def test_group_and_master(tmp_path):
     f1 = tmp_path / "Bias_1kRads_E1.0_frame0.fits"
     f2 = tmp_path / "Bias_1kRads_E1.0_frame1.fits"
