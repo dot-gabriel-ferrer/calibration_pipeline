@@ -1,7 +1,9 @@
 import numpy as np
 
 
-def incremental_mean_std(frame: np.ndarray, mean: np.ndarray | None, m2: np.ndarray | None, count: int) -> tuple[np.ndarray, np.ndarray, int]:
+def incremental_mean_std(
+    frame: np.ndarray, mean: np.ndarray | None, m2: np.ndarray | None, count: int
+) -> tuple[np.ndarray, np.ndarray, int]:
     """Update running mean and M2 for an array using Welford's algorithm.
 
     Parameters
@@ -32,4 +34,3 @@ def incremental_mean_std(frame: np.ndarray, mean: np.ndarray | None, m2: np.ndar
     delta2 = frame - mean
     m2 = m2 + delta * delta2
     return mean, m2, count
-
