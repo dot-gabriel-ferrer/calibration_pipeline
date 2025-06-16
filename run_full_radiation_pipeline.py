@@ -67,10 +67,19 @@ def _ensure_conversion(dataset_root: str) -> None:
             if not os.path.isdir(fits_dir):
                 continue
             files = sorted(glob.glob(os.path.join(fits_dir, "*.fits")))
+            frame_nums: List[int] = []
             for fp in files:
                 with fits.open(fp) as hdul:
                     data = hdul[0].data.astype(np.float32)
                     hdr = hdul[0].header
+                fr_num = hdr.get("FRAMENUM")
+                if fr_num is None:
+                    fr_num = frame_num
+                    frame_num += 1
+                else:
+                    fr_num = int(fr_num)
+                    frame_num = max(frame_num, fr_num + 1)
+                frame_nums.append(fr_num)
                 zero_frac = float(np.count_nonzero(data == 0)) / data.size
                 rows.append(
                     {
@@ -91,17 +100,28 @@ def _ensure_conversion(dataset_root: str) -> None:
                 rdf = pd.read_csv(rad_csv)
                 col = "Dose" if "Dose" in rdf.columns else "RadiationLevel"
                 rads = pd.to_numeric(rdf[col], errors="coerce")
-                for val in rads:
-                    rad_rows.append({"FrameNum": frame_num, col: val})
-                    frame_num += 1
+                fnums = (
+                    pd.to_numeric(rdf.get("FrameNum"), errors="coerce")
+                    if "FrameNum" in rdf.columns
+                    else None
+                )
+                for idx, val in enumerate(rads):
+                    if fnums is not None and pd.notna(fnums.iloc[idx]):
+                        fn = int(fnums.iloc[idx])
+                        frame_num = max(frame_num, fn + 1)
+                    elif idx < len(frame_nums):
+                        fn = frame_nums[idx]
+                    else:
+                        fn = frame_num
+                        frame_num += 1
+                    rad_rows.append({"FrameNum": fn, col: val})
                 if rads.notna().any():
                     prev_dose = float(rads.iloc[-1])
             else:
-                step = (dose_val - prev_dose) / len(files) if files else 0.0
-                for _ in files:
+                step = (dose_val - prev_dose) / len(frame_nums) if frame_nums else 0.0
+                for fn in frame_nums:
                     prev_dose += step
-                    rad_rows.append({"FrameNum": frame_num, "Dose": prev_dose})
-                    frame_num += 1
+                    rad_rows.append({"FrameNum": fn, "Dose": prev_dose})
 
         if rows:
             pd.DataFrame(rows).to_csv(os.path.join(dataset_root, "index.csv"), index=False)
