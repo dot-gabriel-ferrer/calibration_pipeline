@@ -244,10 +244,10 @@ def _plot_stage_stats(stage_dir: str) -> None:
         )
 
 
-def _fit_radiation_model(stage_dir: str) -> pd.DataFrame | None:
+def _fit_radiation_model(stage_dir: str, *, verbose: bool = False) -> pd.DataFrame | None:
     """Fit radiation model for all NPZ frames in *stage_dir*."""
     model_dir = os.path.join(stage_dir, "radiation_model")
-    df = fit_radiation_model.load_frames(stage_dir)
+    df = fit_radiation_model.load_frames(stage_dir, verbose=verbose)
     if df.empty:
         logger.info("No frames found for radiation model in %s", stage_dir)
         return None
@@ -358,7 +358,7 @@ def run_pipeline(
         logger.info("Processing stage %s", stage)
         _plot_stage_stats(stage_dir)
         _masters_to_npz(stage_dir)
-        params = _fit_radiation_model(stage_dir)
+        params = _fit_radiation_model(stage_dir, verbose=verbose)
         _reconstruct_and_compare(stage_dir, params)
 
     precision_dir = os.path.join(output_dir, "precision")
@@ -379,10 +379,16 @@ def main() -> None:
     )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s: %(message)s",
-    )
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    if args.verbose:
+        for name in [
+            __name__,
+            "radiation_analysis",
+            "fit_radiation_model",
+            "dose_analysis",
+            "utils.index_dataset",
+        ]:
+            logging.getLogger(name).setLevel(logging.DEBUG)
     run_pipeline(
         args.dataset_root,
         args.radiation_log,

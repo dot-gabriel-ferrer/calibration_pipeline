@@ -277,6 +277,8 @@ python run_full_radiation_pipeline.py \
 
 Use ``--ignore-temp`` to combine all frames regardless of temperature when
 building masters.
+Running with ``--verbose`` enables debug logs and displays progress bars for
+longer operations.
 ```
 
 The output directory will contain subfolders `pre/`, `radiating/` and `post/`

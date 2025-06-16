@@ -29,6 +29,7 @@ import json
 import os
 import logging
 from typing import Tuple
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -69,10 +70,12 @@ def _load_npz(path: str) -> dict:
     }
 
 
-def load_frames(directory: str) -> pd.DataFrame:
+def load_frames(directory: str, *, verbose: bool = False) -> pd.DataFrame:
     """Return per-frame statistics from ``directory``."""
     rows = []
-    for name in sorted(os.listdir(directory)):
+    iterator = sorted(os.listdir(directory))
+    iterator = tqdm(iterator, desc="load", ncols=80, disable=not verbose)
+    for name in iterator:
         path = os.path.join(directory, name)
         if not os.path.isfile(path):
             continue
