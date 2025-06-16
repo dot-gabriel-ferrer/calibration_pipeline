@@ -176,14 +176,17 @@ def master_by_temp(
     bias_maps: Dict[float, np.ndarray] | None = None,
     *,
     ignore_temp: bool = False,
+    group_by_dose: bool = False,
 ) -> Dict[float, Tuple[np.ndarray, fits.Header]]:
     """Compute mean master frames grouped by temperature.
 
     If ``bias_maps`` is provided the bias map with the closest temperature is
-    subtracted from each frame before combining.
+    subtracted from each frame before combining. When ``group_by_dose`` is
+    ``True`` all frames are combined into a single master regardless of their
+    temperature. This is used for datasets with a constant radiation level.
     """
     temp_groups: Dict[float, List[str]] = defaultdict(list)
-    if ignore_temp:
+    if ignore_temp or group_by_dose:
         temp_groups[0.0] = list(paths)
     else:
         for p, t in zip(paths, temps):
@@ -249,6 +252,7 @@ def analyse_stage(
     stage: str,
     *,
     ignore_temp: bool = False,
+    group_by_dose: bool = False,
 ) -> None:
     """Analyse all bias and dark frames belonging to one radiation stage."""
     os.makedirs(outdir, exist_ok=True)
@@ -271,6 +275,10 @@ def analyse_stage(
         rad_means[idx] = rad
         for f in frames.dropna().astype(int):
             frame_to_group[f] = idx
+
+    unique_doses = {v for v in rad_means.values() if not np.isnan(v)}
+    constant_dose = len(unique_doses) <= 1 and bool(unique_doses)
+    apply_dose_grouping = group_by_dose and constant_dose
 
     summary_rows = []
 
@@ -303,7 +311,12 @@ def analyse_stage(
 
         plot_mean_std_vs_time(out_csv, os.path.join(outdir, "mean_std_bias_vs_time.png"))
 
-        bias_master_info = master_by_temp(b_paths, b_temps, ignore_temp=ignore_temp)
+        bias_master_info = master_by_temp(
+            b_paths,
+            b_temps,
+            ignore_temp=ignore_temp or apply_dose_grouping,
+            group_by_dose=apply_dose_grouping,
+        )
         bias_masters = {}
         for t, (master, hdr) in bias_master_info.items():
             fpath = os.path.join(outdir, f"master_bias_T{t:.1f}.fits")
@@ -365,7 +378,8 @@ def analyse_stage(
             d_paths,
             d_temps,
             bias_maps=bias_masters,
-            ignore_temp=ignore_temp,
+            ignore_temp=ignore_temp or apply_dose_grouping,
+            group_by_dose=apply_dose_grouping,
         )
         for t, (master, hdr) in masters_info.items():
             fpath = os.path.join(outdir, f"master_dark_T{t:.1f}.fits")
@@ -457,6 +471,7 @@ def main(
     stages: Iterable[str],
     *,
     ignore_temp: bool = False,
+    group_by_dose: bool = False,
 ) -> None:
     df = pd.read_csv(index_csv)
     df = df[df.get("BADFITS", False) == False]
@@ -465,7 +480,14 @@ def main(
 
     for stage in stages:
         out = os.path.join(output_dir, stage)
-        analyse_stage(df, radiation_log, out, stage, ignore_temp=ignore_temp)
+        analyse_stage(
+            df,
+            radiation_log,
+            out,
+            stage,
+            ignore_temp=ignore_temp,
+            group_by_dose=group_by_dose,
+        )
 
     # Generate difference heatmaps between all available stage pairs
     stage_dirs = {s: os.path.join(output_dir, s) for s in stages}
@@ -502,6 +524,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Do not group frames by temperature",
     )
+    parser.add_argument(
+        "--group-by-dose",
+        action="store_true",
+        help="Group all frames for a dose when radiation is constant",
+    )
     args = parser.parse_args()
     main(
         args.index_csv,
@@ -509,4 +536,5 @@ if __name__ == "__main__":
         args.output_dir,
         args.stages,
         ignore_temp=args.ignore_temp,
+        group_by_dose=args.group_by_dose,
     )

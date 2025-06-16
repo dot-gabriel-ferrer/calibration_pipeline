@@ -120,7 +120,14 @@ def _plot_dark_mean(df: pd.DataFrame, out_dir: str) -> None:
         plt.close()
 
 
-def run_pipeline(dataset_root: str, output_dir: str, *, ignore_temp: bool = False, verbose: bool = False) -> None:
+def run_pipeline(
+    dataset_root: str,
+    output_dir: str,
+    *,
+    ignore_temp: bool = False,
+    verbose: bool = False,
+    group_by_dose: bool = False,
+) -> None:
     """Run the full irradiation analysis workflow."""
 
     logger.info("Preparing dataset under %s", dataset_root)
@@ -136,7 +143,14 @@ def run_pipeline(dataset_root: str, output_dir: str, *, ignore_temp: bool = Fals
     rad_csv = os.path.join(dataset_root, "radiationLogCompleto.csv")
 
     stage_dir = os.path.join(output_dir, "radiation_analysis")
-    radiation_analysis.main(index_csv, rad_csv, stage_dir, stages=["radiating"], ignore_temp=ignore_temp)
+    radiation_analysis.main(
+        index_csv,
+        rad_csv,
+        stage_dir,
+        stages=["radiating"],
+        ignore_temp=ignore_temp,
+        group_by_dose=group_by_dose,
+    )
 
     dose_dir = os.path.join(output_dir, "dose_analysis")
     dose_map = utils.read_radiation_log(rad_csv)
@@ -156,12 +170,23 @@ def main() -> None:
     parser.add_argument("dataset_root", help="Directory containing <dose>kRads folders")
     parser.add_argument("output_dir", help="Directory for results")
     parser.add_argument("--ignore-temp", action="store_true", help="Do not group frames by temperature")
+    parser.add_argument(
+        "--group-by-dose",
+        action="store_true",
+        help="Group all frames for a dose when radiation is constant",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s: %(message)s")
 
-    run_pipeline(args.dataset_root, args.output_dir, ignore_temp=args.ignore_temp, verbose=args.verbose)
+    run_pipeline(
+        args.dataset_root,
+        args.output_dir,
+        ignore_temp=args.ignore_temp,
+        verbose=args.verbose,
+        group_by_dose=args.group_by_dose,
+    )
 
 
 if __name__ == "__main__":
