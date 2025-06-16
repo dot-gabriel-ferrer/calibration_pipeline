@@ -274,8 +274,15 @@ python run_full_radiation_pipeline.py \
     path/to/irrad_dataset \
     path/to/radiationLogCompleto.csv \
     output_dir/
+
+Use ``--ignore-temp`` to combine all frames regardless of temperature when
+building masters.
 ```
 
 The output directory will contain subfolders `pre/`, `radiating/` and `post/`
 with all intermediate results, plots and radiation model fits.  Additional
 precision metrics are stored under `output_dir/precision/`.
+
+The script also recognises datasets arranged as ``<dose>kRads/`` directories with
+``fits/`` and an optional ``radiationLogDef.csv`` inside each one. When the log
+is missing the dose is distributed linearly between successive directories.
