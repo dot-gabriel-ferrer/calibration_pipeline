@@ -104,8 +104,16 @@ def _extract_rads_from_path(path: str) -> float | None:
 # Master generation
 # -----------------------------------------------------------------------------
 
-def master_by_temp(paths: List[str], temps: List[float]) -> Dict[float, np.ndarray]:
-    """Compute mean master frames grouped by temperature."""
+def master_by_temp(
+    paths: List[str],
+    temps: List[float],
+    bias_maps: Dict[float, np.ndarray] | None = None,
+) -> Dict[float, np.ndarray]:
+    """Compute mean master frames grouped by temperature.
+
+    If ``bias_maps`` are provided, each frame is corrected using the bias map
+    with the closest temperature before averaging.
+    """
     temp_groups: Dict[float, List[str]] = defaultdict(list)
     for p, t in zip(paths, temps):
         if t is None or not np.isfinite(t):
@@ -114,7 +122,14 @@ def master_by_temp(paths: List[str], temps: List[float]) -> Dict[float, np.ndarr
 
     masters: Dict[float, np.ndarray] = {}
     for temp, files in temp_groups.items():
-        master, _ = _make_mean_master(files, temps=[temp] * len(files))
+        arrays: List[np.ndarray] = []
+        for fp in files:
+            data = fits.getdata(fp).astype(np.float32)
+            if bias_maps:
+                btemp = min(bias_maps.keys(), key=lambda bt: abs(bt - temp))
+                data = data - bias_maps[btemp]
+            arrays.append(data)
+        master = np.mean(np.stack(arrays, axis=0), axis=0)
         masters[temp] = master
     return masters
 
@@ -132,6 +147,18 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
 
     bias_df = stage_df[stage_df["CALTYPE"] == "BIAS"]
     dark_df = stage_df[stage_df["CALTYPE"] == "DARK"]
+
+    # Pre-compute master bias frames grouped by temperature
+    bias_masters: Dict[float, np.ndarray] = {}
+    if not bias_df.empty:
+        b_paths = list(bias_df["PATH"])
+        b_temps = []
+        for p in b_paths:
+            try:
+                b_temps.append(fits.getheader(p).get("TEMP"))
+            except Exception:
+                b_temps.append(None)
+        bias_masters = master_by_temp(b_paths, b_temps)
 
     log_df = _load_radiation_log(log_path)
     log_groups = _split_log_by_frame_reset(log_df)
@@ -159,9 +186,14 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
         groups: List[int] = []
         for p in subdf["PATH"]:
             data, hdr = _load_frame(p)
+            temp = hdr.get("TEMP")
+            if caltype == "DARK" and bias_masters:
+                if temp is not None and np.isfinite(temp):
+                    btemp = min(bias_masters.keys(), key=lambda bt: abs(bt - float(temp)))
+                    data = data - bias_masters[btemp]
             means.append(float(np.mean(data)))
             stds.append(float(np.std(data)))
-            temps.append(hdr.get("TEMP"))
+            temps.append(temp)
             frames.append(hdr.get("FRAMENUM"))
             paths.append(p)
             groups.append(frame_to_group.get(hdr.get("FRAMENUM"), -1))
@@ -177,10 +209,13 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
             }
         ).to_csv(out_csv, index=False)
 
-        masters = master_by_temp(paths, temps)
+        masters = master_by_temp(paths, temps, bias_maps=bias_masters if caltype == "DARK" else None)
         for t, master in masters.items():
+            hdr = fits.Header()
+            if caltype == "DARK" and bias_masters:
+                hdr["HISTORY"] = "Bias-corrected"
             fpath = os.path.join(outdir, f"master_{caltype.lower()}_T{t:.1f}.fits")
-            fits.writeto(fpath, master.astype(np.float32), overwrite=True)
+            fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
 
         # store group summary
         for g_id in sorted(set(groups)):
