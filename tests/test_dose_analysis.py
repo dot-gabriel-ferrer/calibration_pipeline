@@ -64,6 +64,25 @@ def test_group_and_master(tmp_path):
     assert 'T_MEAN' in hdr and abs(hdr['T_MEAN'] - 11.0) < 1e-6
 
 
+def test_make_master_bias_subtraction(tmp_path):
+    bias_f = tmp_path / 'bias.fits'
+    dark1 = tmp_path / 'dark1.fits'
+    dark2 = tmp_path / 'dark2.fits'
+
+    _make_fits(bias_f, 2)
+    _make_fits(dark1, 12)
+    _make_fits(dark2, 22)
+
+    bias = fits.getdata(bias_f)
+
+    master_no_bias, _ = _make_master([str(dark1), str(dark2)])
+    master_bias, hdr = _make_master([str(dark1), str(dark2)], bias=bias)
+
+    assert np.allclose(master_no_bias, np.full((2, 2), 17.0))
+    assert np.allclose(master_bias, np.full((2, 2), 15.0))
+    assert np.isclose(hdr['MEAN'], 15.0)
+
+
 def test_save_plot_all_stages(monkeypatch, tmp_path):
     summary = pd.DataFrame([
         {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},

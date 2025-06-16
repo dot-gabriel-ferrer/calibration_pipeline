@@ -89,14 +89,21 @@ def _temperature_from_header(path: str) -> float | None:
     return None
 
 
-def _make_master(paths: List[str]) -> Tuple[np.ndarray, fits.Header]:
-    """Compute mean master frame and header with extended statistics."""
+def _make_master(paths: List[str], bias: np.ndarray | None = None) -> Tuple[np.ndarray, fits.Header]:
+    """Compute mean master frame and header with extended statistics.
+
+    If *bias* is provided, each input frame is bias-subtracted before
+    computing the master.  The returned statistics then refer to the
+    bias-corrected data.
+    """
     stack = []
     temps = []
     means = []
     stds = []
     for p in tqdm(paths, desc="Reading frames", unit="frame", leave=False):
         data = fits.getdata(p).astype(np.float32)
+        if bias is not None:
+            data = data - bias
         stack.append(data)
         t = _temperature_from_header(p)
         if t is None or not np.isfinite(t):
@@ -106,7 +113,14 @@ def _make_master(paths: List[str]) -> Tuple[np.ndarray, fits.Header]:
         means.append(float(np.mean(data)))
         stds.append(float(np.std(data)))
     stack_arr = np.stack(stack, axis=0)
-    master, hdr = _make_mean_master(paths)
+    master = np.mean(stack_arr, axis=0)
+    hdr = fits.Header()
+    hdr["NSOURCE"] = len(paths)
+    hdr["MEAN"] = float(np.mean(stack_arr))
+    hdr["MEDIAN"] = float(np.median(stack_arr))
+    hdr["STD"] = float(np.std(stack_arr))
+    hdr["DATAMIN"] = float(np.min(stack_arr))
+    hdr["DATAMAX"] = float(np.max(stack_arr))
     valid_temps = [t for t in temps if t is not None and np.isfinite(t)]
     if valid_temps:
         hdr["T_MEAN"] = float(np.mean(valid_temps))
@@ -1723,8 +1737,39 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
     os.makedirs(master_dir, exist_ok=True)
 
     records = []
+    bias_masters: Dict[Tuple[str, float], np.ndarray] = {}
+
+    bias_items = {k: v for k, v in groups.items() if k[1] == "BIAS"}
+    for (stage, _, dose, exp), paths in tqdm(
+        bias_items.items(), desc="Generating bias masters", unit="group"
+    ):
+        name = (
+            f"master_bias_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}"
+        ).replace("/", "_")
+        fpath = os.path.join(master_dir, name + ".fits")
+
+        if os.path.exists(fpath):
+            master = fits.getdata(fpath)
+            hdr = fits.getheader(fpath)
+        else:
+            master, hdr = _make_master(paths)
+            fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
+
+        records.append(
+            {
+                "STAGE": stage,
+                "CALTYPE": "BIAS",
+                "DOSE": dose,
+                "EXPTIME": exp,
+                "MEAN": hdr["MEAN"],
+                "STD": hdr["STD"],
+            }
+        )
+        bias_masters[(stage, dose)] = master
+
+    other_items = {k: v for k, v in groups.items() if k[1] != "BIAS"}
     for (stage, cal, dose, exp), paths in tqdm(
-        groups.items(), desc="Generating masters", unit="group"
+        other_items.items(), desc="Generating masters", unit="group"
     ):
         name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}".replace('/', '_')
         fpath = os.path.join(master_dir, name + ".fits")
@@ -1733,7 +1778,10 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
             master = fits.getdata(fpath)
             hdr = fits.getheader(fpath)
         else:
-            master, hdr = _make_master(paths)
+            bias = None
+            if cal == "DARK":
+                bias = bias_masters.get((stage, dose))
+            master, hdr = _make_master(paths, bias=bias)
             fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
 
         records.append({
