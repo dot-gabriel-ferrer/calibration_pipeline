@@ -261,3 +261,21 @@ The script writes `index.csv` in the dataset root and places all analysis
 outputs inside the chosen output directory. Difference heatmaps created during
 the analysis now save the underlying arrays alongside each PNG as `.npz`
 files for further inspection.
+
+## Full radiation pipeline
+
+`run_full_radiation_pipeline.py` automates the complete irradiation workflow.
+It ensures all frames are converted to FITS and indexed, runs the analysis for
+each stage, fits a radiation response model and evaluates the photometric
+precision.
+
+```bash
+python run_full_radiation_pipeline.py \
+    path/to/irrad_dataset \
+    path/to/radiationLogCompleto.csv \
+    output_dir/
+```
+
+The output directory will contain subfolders `pre/`, `radiating/` and `post/`
+with all intermediate results, plots and radiation model fits.  Additional
+precision metrics are stored under `output_dir/precision/`.
