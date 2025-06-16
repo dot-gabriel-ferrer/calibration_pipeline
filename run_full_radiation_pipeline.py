@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import glob
 import os
-import tempfile
 import logging
 from typing import Iterable, List, Dict
 
@@ -29,11 +28,12 @@ from astropy.io import fits
 
 logger = logging.getLogger(__name__)
 
-import radiation_variation_analysis
 import radiation_analysis
 import fit_radiation_model
 from operation_analysis import _plot_intensity_stats, _parse_rads
 import dose_analysis
+from utils import index_dataset
+from tqdm import tqdm
 from bias_pipeline.bias_pipeline.steps.step4_generate_synthetic_bias import (
     generate_synthetic_bias,
 )
@@ -45,9 +45,9 @@ _STAGES: Iterable[str] = ("pre", "radiating", "post")
 
 
 def _ensure_conversion(dataset_root: str) -> None:
-    """Convert raw frames and build ``index.csv`` depending on dataset layout."""
+    """Generate ``index.csv`` using existing FITS files."""
 
-    logger.info("Converting raw frames under %s", dataset_root)
+    logger.info("Indexing FITS files under %s", dataset_root)
 
     kdirs = [
         d
@@ -61,14 +61,16 @@ def _ensure_conversion(dataset_root: str) -> None:
         rad_rows: List[Dict[str, float]] = []
         frame_num = 0
         prev_dose = 0.0
-        for entry in sorted(kdirs, key=lambda d: _parse_rads(d) or 0.0):
+        for entry in tqdm(
+            sorted(kdirs, key=lambda d: _parse_rads(d) or 0.0), desc="doses", ncols=80
+        ):
             dpath = os.path.join(dataset_root, entry)
             fits_dir = os.path.join(dpath, "fits")
             if not os.path.isdir(fits_dir):
                 continue
             files = sorted(glob.glob(os.path.join(fits_dir, "*.fits")))
             frame_nums: List[int] = []
-            for fp in files:
+            for fp in tqdm(files, desc=entry, leave=False, ncols=80):
                 with fits.open(fp) as hdul:
                     data = hdul[0].data.astype(np.float32)
                     hdr = hdul[0].header
@@ -130,14 +132,47 @@ def _ensure_conversion(dataset_root: str) -> None:
                 os.path.join(dataset_root, "radiationLogCompleto.csv"), index=False
             )
     else:
-        with tempfile.TemporaryDirectory() as tmp:
-            radiation_variation_analysis.main(dataset_root, tmp)
+        stages: list[tuple[str, str]] = []
+        pre = os.path.join(dataset_root, "Preirradiation")
+        if os.path.isdir(pre):
+            stages.append((pre, "pre"))
+
+        irrad_root = os.path.join(dataset_root, "Irradiation")
+        if os.path.isdir(irrad_root):
+            for name in sorted(os.listdir(irrad_root)):
+                path = os.path.join(irrad_root, name)
+                if os.path.isdir(path):
+                    stages.append((path, "radiating"))
+
+        post = os.path.join(dataset_root, "Postirradiation")
+        if os.path.isdir(post):
+            stages.append((post, "post"))
+
+        frames: List[pd.DataFrame] = []
+        for path, stage in tqdm(stages, desc="stages", ncols=80):
+            bias = os.path.join(path, "Bias")
+            dark = os.path.join(path, "Darks")
+            flat = os.path.join(path, "Flats")
+            tmp_csv = os.path.join(path, "index.csv")
+            index_dataset.index_sections(bias, dark, flat, tmp_csv, stage=stage, search_depth=6)
+            if os.path.isfile(tmp_csv):
+                frames.append(pd.read_csv(tmp_csv))
+
+        if frames:
+            pd.concat(frames, ignore_index=True).to_csv(
+                os.path.join(dataset_root, "index.csv"), index=False
+            )
 
 
 def _masters_to_npz(stage_dir: str) -> List[str]:
     """Convert master FITS frames in *stage_dir* to ``.npz`` archives."""
     npz_files: List[str] = []
-    for path in glob.glob(os.path.join(stage_dir, "master_*.fits")):
+    for path in tqdm(
+        glob.glob(os.path.join(stage_dir, "master_*.fits")),
+        desc=f"npz {os.path.basename(stage_dir)}",
+        leave=False,
+        ncols=80,
+    ):
         logger.debug("Converting %s", path)
         data = fits.getdata(path).astype(np.float32)
         hdr = fits.getheader(path)
