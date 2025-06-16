@@ -20,11 +20,14 @@ import argparse
 import glob
 import os
 import tempfile
+import logging
 from typing import Iterable, List, Dict
 
 import numpy as np
 import pandas as pd
 from astropy.io import fits
+
+logger = logging.getLogger(__name__)
 
 import radiation_variation_analysis
 import radiation_analysis
@@ -43,6 +46,7 @@ _STAGES: Iterable[str] = ("pre", "radiating", "post")
 
 def _ensure_conversion(dataset_root: str) -> None:
     """Run ``radiation_variation_analysis`` to convert raw frames and index."""
+    logger.info("Converting raw frames under %s", dataset_root)
     with tempfile.TemporaryDirectory() as tmp:
         radiation_variation_analysis.main(dataset_root, tmp)
 
@@ -51,6 +55,7 @@ def _masters_to_npz(stage_dir: str) -> List[str]:
     """Convert master FITS frames in *stage_dir* to ``.npz`` archives."""
     npz_files: List[str] = []
     for path in glob.glob(os.path.join(stage_dir, "master_*.fits")):
+        logger.debug("Converting %s", path)
         data = fits.getdata(path).astype(np.float32)
         hdr = fits.getheader(path)
         frame_type = "bias" if "bias" in os.path.basename(path).lower() else "dark"
@@ -79,6 +84,7 @@ def _masters_to_npz(stage_dir: str) -> List[str]:
 def _plot_stage_stats(stage_dir: str) -> None:
     plots_dir = os.path.join(stage_dir, "plots")
     os.makedirs(plots_dir, exist_ok=True)
+    logger.info("Plotting intensity statistics for %s", stage_dir)
 
     for cal in ("bias", "dark"):
         csv_path = os.path.join(stage_dir, f"stats_{cal}.csv")
@@ -106,7 +112,9 @@ def _fit_radiation_model(stage_dir: str) -> pd.DataFrame | None:
     model_dir = os.path.join(stage_dir, "radiation_model")
     df = fit_radiation_model.load_frames(stage_dir)
     if df.empty:
+        logger.info("No frames found for radiation model in %s", stage_dir)
         return None
+    logger.info("Fitting radiation model for %s", stage_dir)
     return fit_radiation_model.fit_model(df, model_dir)
 
 
@@ -121,6 +129,7 @@ def _reconstruct_and_compare(stage_dir: str, params: pd.DataFrame | None) -> Non
         None,
     )
     if params is None:
+        logger.info("Skipping reconstruction for %s (no params)", stage_dir)
         return
 
     recon_dir = os.path.join(stage_dir, "reconstruction")
@@ -131,6 +140,7 @@ def _reconstruct_and_compare(stage_dir: str, params: pd.DataFrame | None) -> Non
     }
 
     for master_path in (p for p in (bias_master, dark_master) if p):
+        logger.debug("Reconstructing %s", master_path)
         arr = np.load(os.path.splitext(master_path)[0] + ".npz")
         data = arr["image_data"].astype(np.float32)
         ftype = str(arr["frame_type"])
@@ -170,6 +180,7 @@ def _reconstruct_and_compare(stage_dir: str, params: pd.DataFrame | None) -> Non
 
 
 def run_pipeline(dataset_root: str, radiation_log: str, output_dir: str) -> None:
+    logger.info("Starting radiation pipeline")
     _ensure_conversion(dataset_root)
     index_csv = os.path.join(dataset_root, "index.csv")
     radiation_analysis.main(index_csv, radiation_log, output_dir, _STAGES)
@@ -178,6 +189,7 @@ def run_pipeline(dataset_root: str, radiation_log: str, output_dir: str) -> None
         stage_dir = os.path.join(output_dir, stage)
         if not os.path.isdir(stage_dir):
             continue
+        logger.info("Processing stage %s", stage)
         _plot_stage_stats(stage_dir)
         _masters_to_npz(stage_dir)
         params = _fit_radiation_model(stage_dir)
@@ -185,6 +197,7 @@ def run_pipeline(dataset_root: str, radiation_log: str, output_dir: str) -> None
 
     precision_dir = os.path.join(output_dir, "precision")
     os.makedirs(precision_dir, exist_ok=True)
+    logger.info("Computing precision metrics")
     dose_analysis.main(index_csv, precision_dir)
 
 
@@ -193,7 +206,12 @@ def main() -> None:
     parser.add_argument("dataset_root", help="Directory with Pre/Irradiation data")
     parser.add_argument("radiation_log", help="Path to radiationLogCompleto.csv")
     parser.add_argument("output_dir", help="Where to store results")
+    parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
     run_pipeline(args.dataset_root, args.radiation_log, args.output_dir)
 
 

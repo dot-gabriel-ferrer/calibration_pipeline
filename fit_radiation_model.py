@@ -27,12 +27,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import logging
 from typing import Tuple
 
 import numpy as np
 import pandas as pd
 from astropy.io import fits
 import matplotlib.pyplot as plt
+
+logger = logging.getLogger(__name__)
 
 
 # -----------------------------------------------------------------------------
@@ -95,9 +98,35 @@ def load_frames(directory: str) -> pd.DataFrame:
 # -----------------------------------------------------------------------------
 
 def _linear_fit(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float, np.ndarray]:
-    """Return coefficients (intercept, slope), 1-sigma errors, R2 and residuals."""
+    """Return coefficients (intercept, slope), 1-sigma errors, R2 and residuals.
+
+    Any NaN or infinite values are removed before fitting. The function
+    warns and returns ``NaN`` coefficients when the fit cannot be computed.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    mask = np.isfinite(x) & np.isfinite(y)
+    if not np.all(mask):
+        logger.debug("Filtered %d invalid points", np.sum(~mask))
+    x = x[mask]
+    y = y[mask]
+
+    if x.size < 2 or np.allclose(x, x[0]):
+        logger.warning("Degenerate data for linear fit")
+        coeff = np.full(2, np.nan)
+        errs = np.full(2, np.nan)
+        return coeff, errs, float("nan"), np.full_like(y, np.nan)
+
     A = np.stack([np.ones_like(x), x], axis=1)
-    coeff, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
+    try:
+        coeff, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
+    except np.linalg.LinAlgError as exc:
+        logger.warning("Linear fit failed: %s", exc)
+        coeff = np.full(2, np.nan)
+        errs = np.full(2, np.nan)
+        return coeff, errs, float("nan"), np.full_like(y, np.nan)
+
     y_pred = A @ coeff
     resid = y - y_pred
     ss_res = np.sum(resid ** 2)
