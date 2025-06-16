@@ -89,14 +89,23 @@ def _temperature_from_header(path: str) -> float | None:
     return None
 
 
-def _make_master(paths: List[str]) -> Tuple[np.ndarray, fits.Header]:
-    """Compute mean master frame and header with extended statistics."""
+def _make_master(
+    paths: List[str], bias: np.ndarray | None = None
+) -> Tuple[np.ndarray, fits.Header]:
+    """Compute mean master frame and header with extended statistics.
+
+    If *bias* is provided it is subtracted from each frame before combining.
+    """
+
     stack = []
     temps = []
     means = []
     stds = []
+
     for p in tqdm(paths, desc="Reading frames", unit="frame", leave=False):
         data = fits.getdata(p).astype(np.float32)
+        if bias is not None:
+            data = data - bias
         stack.append(data)
         t = _temperature_from_header(p)
         if t is None or not np.isfinite(t):
@@ -105,16 +114,29 @@ def _make_master(paths: List[str]) -> Tuple[np.ndarray, fits.Header]:
         temps.append(t)
         means.append(float(np.mean(data)))
         stds.append(float(np.std(data)))
+
     stack_arr = np.stack(stack, axis=0)
-    master, hdr = _make_mean_master(paths)
+
+    # Build master statistics
+    master = np.mean(stack_arr, axis=0)
+    hdr = fits.Header()
+    hdr["NSOURCE"] = stack_arr.shape[0]
+    hdr["MEAN"] = float(np.mean(stack_arr))
+    hdr["MEDIAN"] = float(np.median(stack_arr))
+    hdr["STD"] = float(np.std(stack_arr))
+    hdr["DATAMIN"] = float(np.min(stack_arr))
+    hdr["DATAMAX"] = float(np.max(stack_arr))
+
     valid_temps = [t for t in temps if t is not None and np.isfinite(t)]
     if valid_temps:
         hdr["T_MEAN"] = float(np.mean(valid_temps))
         hdr["T_STD"] = float(np.std(valid_temps))
+
     for idx, (src, m, s) in enumerate(zip(paths, means, stds), start=1):
         hdr[f"SRC{idx:03d}"] = os.path.basename(src)
         hdr[f"M{idx:03d}"] = m
         hdr[f"S{idx:03d}"] = s
+
     return master, hdr
 
 
@@ -1758,26 +1780,10 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
             master = fits.getdata(fpath)
             hdr = fits.getheader(fpath)
         else:
+            bias = None
             if cal == "DARK" and (stage, dose) in bias_masters:
-                arrays = []
-                temps = []
-                for p in paths:
-                    data = fits.getdata(p).astype(np.float32)
-                    data = data - bias_masters[(stage, dose)]
-                    arrays.append(data)
-                    temps.append(_temperature_from_header(p))
-                stack = np.stack(arrays, axis=0)
-                master = np.mean(stack, axis=0)
-                hdr = fits.Header()
-                hdr["NSOURCE"] = len(arrays)
-                hdr["MEAN"] = float(np.mean(stack))
-                hdr["STD"] = float(np.std(stack))
-                valid_temps = [t for t in temps if t is not None and np.isfinite(t)]
-                if valid_temps:
-                    hdr["T_MEAN"] = float(np.mean(valid_temps))
-                    hdr["T_STD"] = float(np.std(valid_temps))
-            else:
-                master, hdr = _make_master(paths)
+                bias = bias_masters[(stage, dose)]
+            master, hdr = _make_master(paths, bias=bias)
             fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
 
         records.append({

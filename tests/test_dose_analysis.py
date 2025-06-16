@@ -64,6 +64,37 @@ def test_group_and_master(tmp_path):
     assert 'T_MEAN' in hdr and abs(hdr['T_MEAN'] - 11.0) < 1e-6
 
 
+def test_dark_master_bias_removed(tmp_path):
+    b1 = tmp_path / 'Bias_1kRads_E0.0_frame0.fits'
+    b2 = tmp_path / 'Bias_1kRads_E0.0_frame1.fits'
+    d1 = tmp_path / 'Dark_1kRads_E1.0_frame0.fits'
+    d2 = tmp_path / 'Dark_1kRads_E1.0_frame1.fits'
+
+    _make_fits(b1, 2, temp=10.0, exp=0.0)
+    _make_fits(b2, 2, temp=10.0, exp=0.0)
+    _make_fits(d1, 7, temp=10.0, exp=1.0)
+    _make_fits(d2, 7, temp=10.0, exp=1.0)
+
+    df = pd.DataFrame({
+        'PATH': [str(b1), str(b2), str(d1), str(d2)],
+        'CALTYPE': ['BIAS', 'BIAS', 'DARK', 'DARK'],
+        'STAGE': ['radiating', 'radiating', 'radiating', 'radiating'],
+        'VACUUM': ['air'] * 4,
+        'TEMP': [10.0] * 4,
+        'ZEROFRACTION': [0.0] * 4,
+        'BADFITS': [False] * 4,
+    })
+
+    groups = _group_paths(df)
+    bias_key = ('radiating', 'BIAS', 1.0, 0.0)
+    dark_key = ('radiating', 'DARK', 1.0, 1.0)
+    bias_master, _ = _make_master(groups[bias_key])
+    dark_master, hdr = _make_master(groups[dark_key], bias=bias_master)
+
+    assert np.allclose(dark_master, np.full((2, 2), 5.0))
+    assert np.isclose(hdr['MEAN'], 5.0)
+
+
 def test_save_plot_all_stages(monkeypatch, tmp_path):
     summary = pd.DataFrame([
         {"STAGE": "pre", "CALTYPE": "BIAS", "DOSE": 0.0, "EXPTIME": 1.0, "MEAN": 1.0, "STD": 0.1},
