@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 import radiation_variation_analysis
 import radiation_analysis
 import fit_radiation_model
-from operation_analysis import _plot_intensity_stats
+from operation_analysis import _plot_intensity_stats, _parse_rads
 import dose_analysis
 from bias_pipeline.bias_pipeline.steps.step4_generate_synthetic_bias import (
     generate_synthetic_bias,
@@ -45,10 +45,73 @@ _STAGES: Iterable[str] = ("pre", "radiating", "post")
 
 
 def _ensure_conversion(dataset_root: str) -> None:
-    """Run ``radiation_variation_analysis`` to convert raw frames and index."""
+    """Convert raw frames and build ``index.csv`` depending on dataset layout."""
+
     logger.info("Converting raw frames under %s", dataset_root)
-    with tempfile.TemporaryDirectory() as tmp:
-        radiation_variation_analysis.main(dataset_root, tmp)
+
+    kdirs = [
+        d
+        for d in os.listdir(dataset_root)
+        if os.path.isdir(os.path.join(dataset_root, d))
+        and _parse_rads(d) is not None
+    ]
+
+    if kdirs:
+        rows: List[Dict[str, object]] = []
+        rad_rows: List[Dict[str, float]] = []
+        frame_num = 0
+        prev_dose = 0.0
+        for entry in sorted(kdirs, key=lambda d: _parse_rads(d) or 0.0):
+            dpath = os.path.join(dataset_root, entry)
+            fits_dir = os.path.join(dpath, "fits")
+            if not os.path.isdir(fits_dir):
+                continue
+            files = sorted(glob.glob(os.path.join(fits_dir, "*.fits")))
+            for fp in files:
+                with fits.open(fp) as hdul:
+                    data = hdul[0].data.astype(np.float32)
+                    hdr = hdul[0].header
+                zero_frac = float(np.count_nonzero(data == 0)) / data.size
+                rows.append(
+                    {
+                        "PATH": fp,
+                        "CALTYPE": "DARK"
+                        if float(hdr.get("EXPTIME", 0.0)) > 0.0
+                        else "BIAS",
+                        "STAGE": "radiating",
+                        "VACUUM": None,
+                        "TEMP": hdr.get("TEMP"),
+                        "ZEROFRACTION": zero_frac,
+                        "BADFITS": zero_frac > 0.01,
+                    }
+                )
+            rad_csv = os.path.join(dpath, "radiationLogDef.csv")
+            dose_val = _parse_rads(entry) or prev_dose
+            if os.path.isfile(rad_csv):
+                rdf = pd.read_csv(rad_csv)
+                col = "Dose" if "Dose" in rdf.columns else "RadiationLevel"
+                rads = pd.to_numeric(rdf[col], errors="coerce")
+                for val in rads:
+                    rad_rows.append({"FrameNum": frame_num, col: val})
+                    frame_num += 1
+                if rads.notna().any():
+                    prev_dose = float(rads.iloc[-1])
+            else:
+                step = (dose_val - prev_dose) / len(files) if files else 0.0
+                for _ in files:
+                    prev_dose += step
+                    rad_rows.append({"FrameNum": frame_num, "Dose": prev_dose})
+                    frame_num += 1
+
+        if rows:
+            pd.DataFrame(rows).to_csv(os.path.join(dataset_root, "index.csv"), index=False)
+        if rad_rows:
+            pd.DataFrame(rad_rows).to_csv(
+                os.path.join(dataset_root, "radiationLogCompleto.csv"), index=False
+            )
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            radiation_variation_analysis.main(dataset_root, tmp)
 
 
 def _masters_to_npz(stage_dir: str) -> List[str]:
@@ -94,6 +157,25 @@ def _plot_stage_stats(stage_dir: str) -> None:
         times = df.get("FRAME", df.index).astype(float).tolist()
         means = df["MEAN"].astype(float).tolist()
         stds = df["STD"].astype(float).tolist()
+
+        if cal == "dark" and "T_EXP" in df.columns:
+            for exp, g in df.groupby("T_EXP"):
+                t = g.get("FRAME", g.index).astype(float).tolist()
+                m = g["MEAN"].astype(float).tolist()
+                s = g["STD"].astype(float).tolist()
+                fig_path = os.path.join(plots_dir, f"dark_intensity_{exp:.1f}s.png")
+                _plot_intensity_stats(m, s, t, fig_path)
+                np.savez_compressed(
+                    os.path.join(plots_dir, f"dark_intensity_{exp:.1f}s.npz"),
+                    time=t,
+                    mean=m,
+                    std=s,
+                )
+                pd.DataFrame({"TIME": t, "MEAN": m, "STD": s}).to_csv(
+                    os.path.join(plots_dir, f"dark_intensity_{exp:.1f}s.csv"),
+                    index=False,
+                )
+
         fig_path = os.path.join(plots_dir, f"{cal}_intensity.png")
         _plot_intensity_stats(means, stds, times, fig_path)
         np.savez_compressed(
@@ -179,11 +261,23 @@ def _reconstruct_and_compare(stage_dir: str, params: pd.DataFrame | None) -> Non
         np.savez_compressed(diff_path.replace(".fits", ".npz"), diff=diff)
 
 
-def run_pipeline(dataset_root: str, radiation_log: str, output_dir: str) -> None:
+def run_pipeline(
+    dataset_root: str,
+    radiation_log: str,
+    output_dir: str,
+    *,
+    ignore_temp: bool = False,
+) -> None:
     logger.info("Starting radiation pipeline")
     _ensure_conversion(dataset_root)
     index_csv = os.path.join(dataset_root, "index.csv")
-    radiation_analysis.main(index_csv, radiation_log, output_dir, _STAGES)
+    radiation_analysis.main(
+        index_csv,
+        radiation_log,
+        output_dir,
+        _STAGES,
+        ignore_temp=ignore_temp,
+    )
 
     for stage in _STAGES:
         stage_dir = os.path.join(output_dir, stage)
@@ -206,13 +300,23 @@ def main() -> None:
     parser.add_argument("dataset_root", help="Directory with Pre/Irradiation data")
     parser.add_argument("radiation_log", help="Path to radiationLogCompleto.csv")
     parser.add_argument("output_dir", help="Where to store results")
+    parser.add_argument(
+        "--ignore-temp",
+        action="store_true",
+        help="Do not group frames by temperature",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
-    run_pipeline(args.dataset_root, args.radiation_log, args.output_dir)
+    run_pipeline(
+        args.dataset_root,
+        args.radiation_log,
+        args.output_dir,
+        ignore_temp=args.ignore_temp,
+    )
 
 
 if __name__ == "__main__":

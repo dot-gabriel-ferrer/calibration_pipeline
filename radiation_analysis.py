@@ -61,16 +61,32 @@ def _load_radiation_log(path: str) -> pd.DataFrame:
 
 
 def _split_log_by_frame_reset(df: pd.DataFrame) -> List[pd.DataFrame]:
-    """Split the log whenever ``FrameNum`` decreases or resets."""
+    """Split the log when ``FrameNum`` decreases or the radiation value changes."""
+
     if df.empty or "FrameNum" not in df.columns:
         return []
+
     frames = pd.to_numeric(df["FrameNum"], errors="coerce").astype("Int64")
+    rad = None
+    for col in ("Dose", "RadiationLevel"):
+        if col in df.columns:
+            rad = pd.to_numeric(df[col], errors="coerce")
+            break
+
     groups = []
     start = 0
     for i in range(1, len(frames)):
-        if frames.iloc[i] <= frames.iloc[i - 1]:
+        reset = frames.iloc[i] <= frames.iloc[i - 1]
+        rad_change = False
+        if rad is not None:
+            prev = rad.iloc[i - 1]
+            curr = rad.iloc[i]
+            if pd.notna(prev) and pd.notna(curr) and curr != prev:
+                rad_change = True
+        if reset or rad_change:
             groups.append(df.iloc[start:i])
             start = i
+
     groups.append(df.iloc[start:])
     return groups
 
@@ -140,6 +156,8 @@ def master_by_temp(
     paths: List[str],
     temps: List[float],
     bias_maps: Dict[float, np.ndarray] | None = None,
+    *,
+    ignore_temp: bool = False,
 ) -> Dict[float, Tuple[np.ndarray, fits.Header]]:
     """Compute mean master frames grouped by temperature.
 
@@ -147,10 +165,13 @@ def master_by_temp(
     subtracted from each frame before combining.
     """
     temp_groups: Dict[float, List[str]] = defaultdict(list)
-    for p, t in zip(paths, temps):
-        if t is None or not np.isfinite(t):
-            continue
-        temp_groups[float(t)].append(p)
+    if ignore_temp:
+        temp_groups[0.0] = list(paths)
+    else:
+        for p, t in zip(paths, temps):
+            if t is None or not np.isfinite(t):
+                continue
+            temp_groups[float(t)].append(p)
 
     masters: Dict[float, Tuple[np.ndarray, fits.Header]] = {}
     for temp, files in temp_groups.items():
@@ -175,7 +196,14 @@ def master_by_temp(
 # Analysis functions
 # -----------------------------------------------------------------------------
 
-def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> None:
+def analyse_stage(
+    df: pd.DataFrame,
+    log_path: str,
+    outdir: str,
+    stage: str,
+    *,
+    ignore_temp: bool = False,
+) -> None:
     """Analyse all bias and dark frames belonging to one radiation stage."""
     os.makedirs(outdir, exist_ok=True)
     stage_df = df[df["STAGE"] == stage]
@@ -229,7 +257,7 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
 
         plot_mean_std_vs_time(out_csv, os.path.join(outdir, "mean_std_bias_vs_time.png"))
 
-        bias_master_info = master_by_temp(b_paths, b_temps)
+        bias_master_info = master_by_temp(b_paths, b_temps, ignore_temp=ignore_temp)
         bias_masters = {}
         for t, (master, hdr) in bias_master_info.items():
             fpath = os.path.join(outdir, f"master_bias_T{t:.1f}.fits")
@@ -261,6 +289,7 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
         stds: List[float] = []
         frames: List[int] = []
         groups: List[int] = []
+        exps: List[float] = []
         for p, t in zip(d_paths, d_temps):
             data, hdr = _load_frame(p)
             if bias_masters:
@@ -270,6 +299,7 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
             stds.append(float(np.std(data)))
             frames.append(hdr.get("FRAMENUM"))
             groups.append(frame_to_group.get(hdr.get("FRAMENUM"), -1))
+            exps.append(float(hdr.get("EXPTIME", 0.0)))
         out_csv = os.path.join(outdir, "stats_dark.csv")
         pd.DataFrame(
             {
@@ -277,6 +307,7 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
                 "FRAME": frames,
                 "GROUP": groups,
                 "TEMP": d_temps,
+                "T_EXP": exps,
                 "MEAN": means,
                 "STD": stds,
             }
@@ -284,7 +315,12 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
 
         plot_mean_std_vs_time(out_csv, os.path.join(outdir, "mean_std_dark_vs_time.png"))
 
-        masters_info = master_by_temp(d_paths, d_temps, bias_maps=bias_masters)
+        masters_info = master_by_temp(
+            d_paths,
+            d_temps,
+            bias_maps=bias_masters,
+            ignore_temp=ignore_temp,
+        )
         for t, (master, hdr) in masters_info.items():
             fpath = os.path.join(outdir, f"master_dark_T{t:.1f}.fits")
             fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
@@ -368,7 +404,14 @@ def diff_heatmap(ref_master: np.ndarray, target_master: np.ndarray, outpath: str
 # Command line interface
 # -----------------------------------------------------------------------------
 
-def main(index_csv: str, radiation_log: str, output_dir: str, stages: Iterable[str]) -> None:
+def main(
+    index_csv: str,
+    radiation_log: str,
+    output_dir: str,
+    stages: Iterable[str],
+    *,
+    ignore_temp: bool = False,
+) -> None:
     df = pd.read_csv(index_csv)
     df = df[df.get("BADFITS", False) == False]
 
@@ -376,7 +419,7 @@ def main(index_csv: str, radiation_log: str, output_dir: str, stages: Iterable[s
 
     for stage in stages:
         out = os.path.join(output_dir, stage)
-        analyse_stage(df, radiation_log, out, stage)
+        analyse_stage(df, radiation_log, out, stage, ignore_temp=ignore_temp)
 
     # Generate difference heatmaps between all available stage pairs
     stage_dirs = {s: os.path.join(output_dir, s) for s in stages}
@@ -408,5 +451,16 @@ if __name__ == "__main__":
         default=["pre", "radiating", "post"],
         help="Stages to analyse (pre, radiating, post)",
     )
+    parser.add_argument(
+        "--ignore-temp",
+        action="store_true",
+        help="Do not group frames by temperature",
+    )
     args = parser.parse_args()
-    main(args.index_csv, args.radiation_log, args.output_dir, args.stages)
+    main(
+        args.index_csv,
+        args.radiation_log,
+        args.output_dir,
+        args.stages,
+        ignore_temp=args.ignore_temp,
+    )
