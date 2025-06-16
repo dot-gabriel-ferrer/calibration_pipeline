@@ -84,18 +84,40 @@ def _parse_temp_exp_from_path(path: str) -> tuple[float | None, float | None]:
     return temp, exp
 
 
-def _make_mean_master(paths: list[str], temps: list[float] | None = None, exps: list[float] | None = None) -> tuple[np.ndarray, fits.Header]:
-    """Compute mean master image and header with stats."""
-    stack = np.stack([_load_fits(p) for p in paths], axis=0)
-    master = np.mean(stack, axis=0)
+def _make_mean_master(
+    paths: list[str], temps: list[float] | None = None, exps: list[float] | None = None
+) -> tuple[np.ndarray, fits.Header]:
+    """Compute mean master image and header with stats without stacking."""
+
+    from utils.incremental_stats import incremental_mean_std
+
+    mean = None
+    m2 = None
+    count = 0
+    datamin = np.inf
+    datamax = -np.inf
+
+    for p in paths:
+        data = _load_fits(p)
+        datamin = min(datamin, float(np.min(data)))
+        datamax = max(datamax, float(np.max(data)))
+        mean, m2, count = incremental_mean_std(data, mean, m2, count)
+
+    master = mean.astype(np.float32)
 
     hdr = fits.Header()
-    hdr["NSOURCE"] = len(paths)
-    hdr["MEAN"] = float(np.mean(stack))
-    hdr["MEDIAN"] = float(np.median(stack))
-    hdr["STD"] = float(np.std(stack))
-    hdr["DATAMIN"] = float(np.min(stack))
-    hdr["DATAMAX"] = float(np.max(stack))
+    hdr["NSOURCE"] = count
+    global_mean = float(np.mean(master))
+    hdr["MEAN"] = global_mean
+    hdr["MEDIAN"] = float(np.median(master))
+    if count > 0:
+        total_var = np.sum(m2) + count * np.sum((master - global_mean) ** 2)
+        denom = count * master.size - 1 if count * master.size > 1 else 1
+        hdr["STD"] = float(np.sqrt(total_var / denom))
+    else:
+        hdr["STD"] = 0.0
+    hdr["DATAMIN"] = datamin
+    hdr["DATAMAX"] = datamax
     if temps:
         temps = [t for t in temps if t is not None and np.isfinite(t)]
         if temps:
@@ -168,16 +190,33 @@ def master_bias_by_temp(bias_df: pd.DataFrame, outdir: str) -> dict[float, np.nd
     for temp, masters in tqdm(
         temp_to_attempt_master.items(), desc="Writing master per temp"
     ):
-        stack = np.stack(masters, axis=0)
+        from utils.incremental_stats import incremental_mean_std
+
+        mean = None
+        m2 = None
+        count = 0
+        datamin = np.inf
+        datamax = -np.inf
+        for arr in masters:
+            datamin = min(datamin, float(np.min(arr)))
+            datamax = max(datamax, float(np.max(arr)))
+            mean, m2, count = incremental_mean_std(arr, mean, m2, count)
+
+        mtemp = mean.astype(np.float32)
         temps = [t for t in temp_to_all_temps[temp] if t is not None and np.isfinite(t)]
-        mtemp = np.mean(stack, axis=0)
         hdr = fits.Header()
-        hdr["NSOURCE"] = stack.shape[0]
-        hdr["MEAN"] = float(np.mean(stack))
-        hdr["MEDIAN"] = float(np.median(stack))
-        hdr["STD"] = float(np.std(stack))
-        hdr["DATAMIN"] = float(np.min(stack))
-        hdr["DATAMAX"] = float(np.max(stack))
+        hdr["NSOURCE"] = count
+        gmean = float(np.mean(mtemp))
+        hdr["MEAN"] = gmean
+        hdr["MEDIAN"] = float(np.median(mtemp))
+        if count > 0:
+            total_var = np.sum(m2) + count * np.sum((mtemp - gmean) ** 2)
+            denom = count * mtemp.size - 1 if count * mtemp.size > 1 else 1
+            hdr["STD"] = float(np.sqrt(total_var / denom))
+        else:
+            hdr["STD"] = 0.0
+        hdr["DATAMIN"] = datamin
+        hdr["DATAMAX"] = datamax
         if temps:
             hdr["TMIN"] = float(np.min(temps))
             hdr["TMAX"] = float(np.max(temps))
@@ -203,17 +242,37 @@ def master_dark_flat(
     os.makedirs(outdir_dark, exist_ok=True)
     os.makedirs(outdir_flat, exist_ok=True)
 
-    def _make_master_from_arrays(arrays: list[np.ndarray], temps: list[float] | None = None, exps: list[float] | None = None) -> tuple[np.ndarray, fits.Header]:
-        stack = np.stack(arrays, axis=0)
-        master = np.mean(stack, axis=0)
+    def _make_master_from_arrays(
+        arrays: list[np.ndarray], temps: list[float] | None = None, exps: list[float] | None = None
+    ) -> tuple[np.ndarray, fits.Header]:
+        from utils.incremental_stats import incremental_mean_std
+
+        mean = None
+        m2 = None
+        count = 0
+        datamin = np.inf
+        datamax = -np.inf
+
+        for arr in arrays:
+            datamin = min(datamin, float(np.min(arr)))
+            datamax = max(datamax, float(np.max(arr)))
+            mean, m2, count = incremental_mean_std(arr, mean, m2, count)
+
+        master = mean.astype(np.float32)
 
         hdr = fits.Header()
-        hdr["NSOURCE"] = stack.shape[0]
-        hdr["MEAN"] = float(np.mean(stack))
-        hdr["MEDIAN"] = float(np.median(stack))
-        hdr["STD"] = float(np.std(stack))
-        hdr["DATAMIN"] = float(np.min(stack))
-        hdr["DATAMAX"] = float(np.max(stack))
+        hdr["NSOURCE"] = count
+        gmean = float(np.mean(master))
+        hdr["MEAN"] = gmean
+        hdr["MEDIAN"] = float(np.median(master))
+        if count > 0:
+            total_var = np.sum(m2) + count * np.sum((master - gmean) ** 2)
+            denom = count * master.size - 1 if count * master.size > 1 else 1
+            hdr["STD"] = float(np.sqrt(total_var / denom))
+        else:
+            hdr["STD"] = 0.0
+        hdr["DATAMIN"] = datamin
+        hdr["DATAMAX"] = datamax
         if temps:
             temps = [t for t in temps if t is not None and np.isfinite(t)]
             if temps:
@@ -249,16 +308,51 @@ def master_dark_flat(
     per_group_temps: dict[tuple[float, float], list[float]] = defaultdict(list)
 
     for (t, e, attempt), entries in tqdm(dark_groups.items(), desc="Combining dark per attempt"):
+        from utils.incremental_stats import incremental_mean_std
+
         temps = [e["temp"] for e in entries]
         exps = [e["exp"] for e in entries]
-        arrays: list[np.ndarray] = []
+        mean = None
+        m2 = None
+        count = 0
+        datamin = np.inf
+        datamax = -np.inf
         for ent in entries:
             data = _load_fits(ent["path"])
             if bias_maps:
                 btemp = min(bias_maps.keys(), key=lambda bt: abs(bt - ent["temp"]))
                 data = data - bias_maps[btemp]
-            arrays.append(data)
-        master, hdr = _make_master_from_arrays(arrays, temps=temps, exps=exps)
+            datamin = min(datamin, float(np.min(data)))
+            datamax = max(datamax, float(np.max(data)))
+            mean, m2, count = incremental_mean_std(data, mean, m2, count)
+
+        master = mean.astype(np.float32)
+
+        hdr = fits.Header()
+        hdr["NSOURCE"] = count
+        gmean = float(np.mean(master))
+        hdr["MEAN"] = gmean
+        hdr["MEDIAN"] = float(np.median(master))
+        if count > 0:
+            total_var = np.sum(m2) + count * np.sum((master - gmean) ** 2)
+            denom = count * master.size - 1 if count * master.size > 1 else 1
+            hdr["STD"] = float(np.sqrt(total_var / denom))
+        else:
+            hdr["STD"] = 0.0
+        hdr["DATAMIN"] = datamin
+        hdr["DATAMAX"] = datamax
+        if temps:
+            tvals = [t for t in temps if t is not None and np.isfinite(t)]
+            if tvals:
+                hdr["TMIN"] = float(np.min(tvals))
+                hdr["TMAX"] = float(np.max(tvals))
+                hdr["TAVG"] = float(np.mean(tvals))
+        if exps:
+            evals = [x for x in exps if x is not None and np.isfinite(x)]
+            if evals:
+                hdr["EMIN"] = float(np.min(evals))
+                hdr["EMAX"] = float(np.max(evals))
+                hdr["EAVG"] = float(np.mean(evals))
         name = f"master_dark_{attempt}_T{t:.1f}_E{e:.1f}.fits"
         fits.writeto(os.path.join(outdir_dark, name), master.astype(np.float32), hdr, overwrite=True)
         per_group_masters[(t, e)].append(master)
@@ -266,16 +360,34 @@ def master_dark_flat(
 
     dark_maps: dict[tuple[float, float], np.ndarray] = {}
     for key, masters in tqdm(per_group_masters.items(), desc="Writing dark master per group"):
-        stack = np.stack(masters, axis=0)
+        from utils.incremental_stats import incremental_mean_std
+
+        mean = None
+        m2 = None
+        count = 0
+        datamin = np.inf
+        datamax = -np.inf
+        for arr in masters:
+            datamin = min(datamin, float(np.min(arr)))
+            datamax = max(datamax, float(np.max(arr)))
+            mean, m2, count = incremental_mean_std(arr, mean, m2, count)
+
+        master = mean.astype(np.float32)
+
         temps = [t for t in per_group_temps[key] if t is not None and np.isfinite(t)]
-        master = np.mean(stack, axis=0)
         hdr = fits.Header()
-        hdr["NSOURCE"] = stack.shape[0]
-        hdr["MEAN"] = float(np.mean(stack))
-        hdr["MEDIAN"] = float(np.median(stack))
-        hdr["STD"] = float(np.std(stack))
-        hdr["DATAMIN"] = float(np.min(stack))
-        hdr["DATAMAX"] = float(np.max(stack))
+        hdr["NSOURCE"] = count
+        gmean = float(np.mean(master))
+        hdr["MEAN"] = gmean
+        hdr["MEDIAN"] = float(np.median(master))
+        if count > 0:
+            total_var = np.sum(m2) + count * np.sum((master - gmean) ** 2)
+            denom = count * master.size - 1 if count * master.size > 1 else 1
+            hdr["STD"] = float(np.sqrt(total_var / denom))
+        else:
+            hdr["STD"] = 0.0
+        hdr["DATAMIN"] = datamin
+        hdr["DATAMAX"] = datamax
         if temps:
             hdr["TMIN"] = float(np.min(temps))
             hdr["TMAX"] = float(np.max(temps))
@@ -316,16 +428,34 @@ def master_dark_flat(
 
     flat_maps: dict[tuple[float, float], np.ndarray] = {}
     for key, masters in tqdm(per_flat_masters.items(), desc="Writing flat master per group"):
-        stack = np.stack(masters, axis=0)
+        from utils.incremental_stats import incremental_mean_std
+
+        mean = None
+        m2 = None
+        count = 0
+        datamin = np.inf
+        datamax = -np.inf
+        for arr in masters:
+            datamin = min(datamin, float(np.min(arr)))
+            datamax = max(datamax, float(np.max(arr)))
+            mean, m2, count = incremental_mean_std(arr, mean, m2, count)
+
+        master = mean.astype(np.float32)
+
         temps = [t for t in per_flat_temps[key] if t is not None and np.isfinite(t)]
-        master = np.mean(stack, axis=0)
         hdr = fits.Header()
-        hdr["NSOURCE"] = stack.shape[0]
-        hdr["MEAN"] = float(np.mean(stack))
-        hdr["MEDIAN"] = float(np.median(stack))
-        hdr["STD"] = float(np.std(stack))
-        hdr["DATAMIN"] = float(np.min(stack))
-        hdr["DATAMAX"] = float(np.max(stack))
+        hdr["NSOURCE"] = count
+        gmean = float(np.mean(master))
+        hdr["MEAN"] = gmean
+        hdr["MEDIAN"] = float(np.median(master))
+        if count > 0:
+            total_var = np.sum(m2) + count * np.sum((master - gmean) ** 2)
+            denom = count * master.size - 1 if count * master.size > 1 else 1
+            hdr["STD"] = float(np.sqrt(total_var / denom))
+        else:
+            hdr["STD"] = 0.0
+        hdr["DATAMIN"] = datamin
+        hdr["DATAMAX"] = datamax
         if temps:
             hdr["TMIN"] = float(np.min(temps))
             hdr["TMAX"] = float(np.max(temps))
