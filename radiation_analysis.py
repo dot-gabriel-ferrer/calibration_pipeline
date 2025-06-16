@@ -104,8 +104,16 @@ def _extract_rads_from_path(path: str) -> float | None:
 # Master generation
 # -----------------------------------------------------------------------------
 
-def master_by_temp(paths: List[str], temps: List[float]) -> Dict[float, np.ndarray]:
-    """Compute mean master frames grouped by temperature."""
+def master_by_temp(
+    paths: List[str],
+    temps: List[float],
+    bias_maps: Dict[float, np.ndarray] | None = None,
+) -> Dict[float, np.ndarray]:
+    """Compute mean master frames grouped by temperature.
+
+    If ``bias_maps`` is provided the bias map with the closest temperature is
+    subtracted from each frame before combining.
+    """
     temp_groups: Dict[float, List[str]] = defaultdict(list)
     for p, t in zip(paths, temps):
         if t is None or not np.isfinite(t):
@@ -114,8 +122,15 @@ def master_by_temp(paths: List[str], temps: List[float]) -> Dict[float, np.ndarr
 
     masters: Dict[float, np.ndarray] = {}
     for temp, files in temp_groups.items():
-        master, _ = _make_mean_master(files, temps=[temp] * len(files))
-        masters[temp] = master
+        arrays: List[np.ndarray] = []
+        for f in files:
+            data = fits.getdata(f).astype(np.float32)
+            if bias_maps:
+                btemp = min(bias_maps.keys(), key=lambda bt: abs(bt - temp))
+                data = data - bias_maps[btemp]
+            arrays.append(data)
+        stack = np.stack(arrays, axis=0)
+        masters[temp] = np.mean(stack, axis=0)
     return masters
 
 
@@ -148,41 +163,38 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
 
     summary_rows = []
 
-    for caltype, subdf in (("BIAS", bias_df), ("DARK", dark_df)):
-        if subdf.empty:
-            continue
+    # Compute bias masters first
+    bias_masters: Dict[float, np.ndarray] = {}
+    if not bias_df.empty:
+        b_paths = list(bias_df["PATH"])
+        b_temps = [fits.getheader(p).get("TEMP") for p in b_paths]
         means: List[float] = []
         stds: List[float] = []
-        temps: List[float] = []
         frames: List[int] = []
-        paths: List[str] = []
         groups: List[int] = []
-        for p in subdf["PATH"]:
+        for p in b_paths:
             data, hdr = _load_frame(p)
             means.append(float(np.mean(data)))
             stds.append(float(np.std(data)))
-            temps.append(hdr.get("TEMP"))
             frames.append(hdr.get("FRAMENUM"))
-            paths.append(p)
             groups.append(frame_to_group.get(hdr.get("FRAMENUM"), -1))
-        out_csv = os.path.join(outdir, f"stats_{caltype.lower()}.csv")
+        out_csv = os.path.join(outdir, "stats_bias.csv")
         pd.DataFrame(
             {
-                "PATH": paths,
+                "PATH": b_paths,
                 "FRAME": frames,
                 "GROUP": groups,
-                "TEMP": temps,
+                "TEMP": b_temps,
                 "MEAN": means,
                 "STD": stds,
             }
         ).to_csv(out_csv, index=False)
 
-        masters = master_by_temp(paths, temps)
-        for t, master in masters.items():
-            fpath = os.path.join(outdir, f"master_{caltype.lower()}_T{t:.1f}.fits")
+        bias_masters = master_by_temp(b_paths, b_temps)
+        for t, master in bias_masters.items():
+            fpath = os.path.join(outdir, f"master_bias_T{t:.1f}.fits")
             fits.writeto(fpath, master.astype(np.float32), overwrite=True)
 
-        # store group summary
         for g_id in sorted(set(groups)):
             if g_id < 0:
                 continue
@@ -192,7 +204,58 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
             summary_rows.append(
                 {
                     "STAGE": stage,
-                    "CALTYPE": caltype,
+                    "CALTYPE": "BIAS",
+                    "GROUP": g_id,
+                    "MEAN_RAD": rad_means.get(g_id, float("nan")),
+                    "MEAN_VAL": float(np.mean([m for m, ok in zip(means, mask) if ok])),
+                    "STD_VAL": float(np.mean([s for s, ok in zip(stds, mask) if ok])),
+                }
+            )
+
+    # Analyse dark frames subtracting bias
+    if not dark_df.empty:
+        d_paths = list(dark_df["PATH"])
+        d_temps = [fits.getheader(p).get("TEMP") for p in d_paths]
+        means: List[float] = []
+        stds: List[float] = []
+        frames: List[int] = []
+        groups: List[int] = []
+        for p, t in zip(d_paths, d_temps):
+            data, hdr = _load_frame(p)
+            if bias_masters:
+                btemp = min(bias_masters.keys(), key=lambda bt: abs(bt - t))
+                data = data - bias_masters[btemp]
+            means.append(float(np.mean(data)))
+            stds.append(float(np.std(data)))
+            frames.append(hdr.get("FRAMENUM"))
+            groups.append(frame_to_group.get(hdr.get("FRAMENUM"), -1))
+        out_csv = os.path.join(outdir, "stats_dark.csv")
+        pd.DataFrame(
+            {
+                "PATH": d_paths,
+                "FRAME": frames,
+                "GROUP": groups,
+                "TEMP": d_temps,
+                "MEAN": means,
+                "STD": stds,
+            }
+        ).to_csv(out_csv, index=False)
+
+        masters = master_by_temp(d_paths, d_temps, bias_maps=bias_masters)
+        for t, master in masters.items():
+            fpath = os.path.join(outdir, f"master_dark_T{t:.1f}.fits")
+            fits.writeto(fpath, master.astype(np.float32), overwrite=True)
+
+        for g_id in sorted(set(groups)):
+            if g_id < 0:
+                continue
+            mask = [g == g_id for g in groups]
+            if not any(mask):
+                continue
+            summary_rows.append(
+                {
+                    "STAGE": stage,
+                    "CALTYPE": "DARK",
                     "GROUP": g_id,
                     "MEAN_RAD": rad_means.get(g_id, float("nan")),
                     "MEAN_VAL": float(np.mean([m for m, ok in zip(means, mask) if ok])),

@@ -1723,9 +1723,34 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
     os.makedirs(master_dir, exist_ok=True)
 
     records = []
+
+    # Pre-compute bias masters grouped by stage and dose
+    bias_masters: Dict[Tuple[str, float], np.ndarray] = {}
+    for (stage, cal, dose, exp), paths in groups.items():
+        if cal != "BIAS":
+            continue
+        master, hdr = _make_master(paths)
+        bias_masters[(stage, dose)] = master
+        name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}".replace('/', '_')
+        fpath = os.path.join(master_dir, name + ".fits")
+        fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
+        records.append(
+            {
+                "STAGE": stage,
+                "CALTYPE": cal,
+                "DOSE": dose,
+                "EXPTIME": exp,
+                "MEAN": hdr["MEAN"],
+                "STD": hdr["STD"],
+            }
+        )
+
+    # Generate masters for dark and other calibration types
     for (stage, cal, dose, exp), paths in tqdm(
         groups.items(), desc="Generating masters", unit="group"
     ):
+        if cal == "BIAS":
+            continue
         name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}".replace('/', '_')
         fpath = os.path.join(master_dir, name + ".fits")
 
@@ -1733,7 +1758,26 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
             master = fits.getdata(fpath)
             hdr = fits.getheader(fpath)
         else:
-            master, hdr = _make_master(paths)
+            if cal == "DARK" and (stage, dose) in bias_masters:
+                arrays = []
+                temps = []
+                for p in paths:
+                    data = fits.getdata(p).astype(np.float32)
+                    data = data - bias_masters[(stage, dose)]
+                    arrays.append(data)
+                    temps.append(_temperature_from_header(p))
+                stack = np.stack(arrays, axis=0)
+                master = np.mean(stack, axis=0)
+                hdr = fits.Header()
+                hdr["NSOURCE"] = len(arrays)
+                hdr["MEAN"] = float(np.mean(stack))
+                hdr["STD"] = float(np.std(stack))
+                valid_temps = [t for t in temps if t is not None and np.isfinite(t)]
+                if valid_temps:
+                    hdr["T_MEAN"] = float(np.mean(valid_temps))
+                    hdr["T_STD"] = float(np.std(valid_temps))
+            else:
+                master, hdr = _make_master(paths)
             fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
 
         records.append({
