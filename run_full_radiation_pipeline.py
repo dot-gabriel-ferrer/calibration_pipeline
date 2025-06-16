@@ -109,18 +109,25 @@ def _ensure_conversion(dataset_root: str) -> None:
                     if "FrameNum" in rdf.columns
                     else pd.Series([np.nan] * len(rdf))
                 )
-                for idx, val in enumerate(rads):
-                    if pd.notna(frame_series.iloc[idx]):
-                        fn = int(frame_series.iloc[idx])
-                        frame_num = max(frame_num, fn + 1)
-                    elif idx < len(frame_nums):
-                        fn = frame_nums[idx]
-                    else:
-                        fn = frame_num
-                        frame_num += 1
-                    rad_rows.append({"FrameNum": fn, col: val})
-                if rads.notna().any():
-                    prev_dose = float(rads.iloc[-1])
+                constant = rads.dropna().nunique() <= 1
+                if not constant:
+                    for idx, val in enumerate(rads):
+                        if pd.notna(frame_series.iloc[idx]):
+                            fn = int(frame_series.iloc[idx])
+                            frame_num = max(frame_num, fn + 1)
+                        elif idx < len(frame_nums):
+                            fn = frame_nums[idx]
+                        else:
+                            fn = frame_num
+                            frame_num += 1
+                        rad_rows.append({"FrameNum": fn, col: val})
+                    if rads.notna().any():
+                        prev_dose = float(rads.iloc[-1])
+                else:
+                    step = (dose_val - prev_dose) / len(frame_nums) if frame_nums else 0.0
+                    for fn in frame_nums:
+                        prev_dose += step
+                        rad_rows.append({"FrameNum": fn, col: prev_dose})
             else:
                 step = (dose_val - prev_dose) / len(frame_nums) if frame_nums else 0.0
                 for fn in frame_nums:

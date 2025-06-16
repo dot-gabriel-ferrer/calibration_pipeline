@@ -289,4 +289,7 @@ The script also recognises datasets arranged as ``<dose>kRads/`` directories wit
 ``fits/`` and an optional ``radiationLogDef.csv`` inside each one. In this layout
 the pipeline reads the already converted FITS from the ``fits/`` subfolder
 instead of the raw frames. When the log is missing the dose is distributed
-linearly between successive directories.
+linearly between successive directories. If ``radiationLogDef.csv`` is present
+but its ``RadiationLevel`` or ``Dose`` column does not change, the values are
+treated as missing and the dose is likewise spread from the previous
+directory's final value up to the nominal dose of the current folder.
