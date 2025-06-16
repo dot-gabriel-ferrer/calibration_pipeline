@@ -227,6 +227,8 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
             }
         ).to_csv(out_csv, index=False)
 
+        plot_mean_std_vs_time(out_csv, os.path.join(outdir, "mean_std_bias_vs_time.png"))
+
         bias_master_info = master_by_temp(b_paths, b_temps)
         bias_masters = {}
         for t, (master, hdr) in bias_master_info.items():
@@ -280,6 +282,8 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
             }
         ).to_csv(out_csv, index=False)
 
+        plot_mean_std_vs_time(out_csv, os.path.join(outdir, "mean_std_dark_vs_time.png"))
+
         masters_info = master_by_temp(d_paths, d_temps, bias_maps=bias_masters)
         for t, (master, hdr) in masters_info.items():
             fpath = os.path.join(outdir, f"master_dark_T{t:.1f}.fits")
@@ -309,6 +313,42 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
 # -----------------------------------------------------------------------------
 # Difference heatmaps and temporal plots
 # -----------------------------------------------------------------------------
+
+def plot_mean_std_vs_time(csv_path: str, outpath: str) -> None:
+    """Plot mean signal over time for each temperature group."""
+    if not os.path.isfile(csv_path):
+        return
+    df = pd.read_csv(csv_path)
+    if df.empty:
+        return
+
+    if "TIME" in df.columns:
+        sort_col = "TIME"
+    elif "FRAME" in df.columns:
+        sort_col = "FRAME"
+    else:
+        df["_INDEX"] = range(len(df))
+        sort_col = "_INDEX"
+
+    plt.figure(figsize=(8, 4))
+    for temp, g in df.groupby("TEMP"):
+        if g.empty:
+            continue
+        g = g.sort_values(sort_col)
+        x = pd.to_numeric(g[sort_col], errors="coerce")
+        m = pd.to_numeric(g["MEAN"], errors="coerce")
+        s = pd.to_numeric(g["STD"], errors="coerce")
+        plt.plot(x, m, label=f"T={temp:.1f}")
+        plt.fill_between(x, m - s, m + s, alpha=0.2)
+
+    plt.xlabel("Time" if sort_col != "FRAME" else "Frame")
+    plt.ylabel("Mean (ADU)")
+    plt.legend(title="Temperature")
+    plt.tight_layout()
+    plt.savefig(outpath)
+    plt.close()
+
+
 
 def diff_heatmap(ref_master: np.ndarray, target_master: np.ndarray, outpath: str, title: str) -> None:
     diff = target_master - ref_master
