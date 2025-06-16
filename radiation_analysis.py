@@ -100,6 +100,38 @@ def _extract_rads_from_path(path: str) -> float | None:
     return None
 
 
+
+# -----------------------------------------------------------------------------
+# Master generation
+# -----------------------------------------------------------------------------
+
+def _make_master_from_arrays(
+    arrays: List[np.ndarray],
+    temps: List[float] | None = None,
+    bias_subtracted: bool = False,
+) -> Tuple[np.ndarray, fits.Header]:
+    """Compute mean master image from arrays with optional metadata."""
+    stack = np.stack(arrays, axis=0)
+    master = np.mean(stack, axis=0)
+
+    hdr = fits.Header()
+    hdr["NSOURCE"] = stack.shape[0]
+    hdr["MEAN"] = float(np.mean(stack))
+    hdr["MEDIAN"] = float(np.median(stack))
+    hdr["STD"] = float(np.std(stack))
+    hdr["DATAMIN"] = float(np.min(stack))
+    hdr["DATAMAX"] = float(np.max(stack))
+    if temps:
+        temps = [t for t in temps if t is not None and np.isfinite(t)]
+        if temps:
+            hdr["TMIN"] = float(np.min(temps))
+            hdr["TMAX"] = float(np.max(temps))
+            hdr["TAVG"] = float(np.mean(temps))
+    if bias_subtracted:
+        hdr["BIASSUB"] = True
+    return master, hdr
+
+
 # -----------------------------------------------------------------------------
 # Master generation
 # -----------------------------------------------------------------------------
@@ -108,7 +140,7 @@ def master_by_temp(
     paths: List[str],
     temps: List[float],
     bias_maps: Dict[float, np.ndarray] | None = None,
-) -> Dict[float, np.ndarray]:
+) -> Dict[float, Tuple[np.ndarray, fits.Header]]:
     """Compute mean master frames grouped by temperature.
 
     If ``bias_maps`` is provided the bias map with the closest temperature is
@@ -120,17 +152,22 @@ def master_by_temp(
             continue
         temp_groups[float(t)].append(p)
 
-    masters: Dict[float, np.ndarray] = {}
+    masters: Dict[float, Tuple[np.ndarray, fits.Header]] = {}
     for temp, files in temp_groups.items():
         arrays: List[np.ndarray] = []
+        temps_for_hdr: List[float] = []
         for f in files:
             data = fits.getdata(f).astype(np.float32)
+            hdr = fits.getheader(f)
+            temps_for_hdr.append(hdr.get("TEMP"))
             if bias_maps:
                 btemp = min(bias_maps.keys(), key=lambda bt: abs(bt - temp))
                 data = data - bias_maps[btemp]
             arrays.append(data)
-        stack = np.stack(arrays, axis=0)
-        masters[temp] = np.mean(stack, axis=0)
+        master, hdr = _make_master_from_arrays(
+            arrays, temps=temps_for_hdr, bias_subtracted=bias_maps is not None
+        )
+        masters[temp] = (master, hdr)
     return masters
 
 
@@ -167,7 +204,7 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
     bias_masters: Dict[float, np.ndarray] = {}
     if not bias_df.empty:
         b_paths = list(bias_df["PATH"])
-        b_temps = [fits.getheader(p).get("TEMP") for p in b_paths]
+        b_temps = list(bias_df["TEMP"])
         means: List[float] = []
         stds: List[float] = []
         frames: List[int] = []
@@ -190,10 +227,12 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
             }
         ).to_csv(out_csv, index=False)
 
-        bias_masters = master_by_temp(b_paths, b_temps)
-        for t, master in bias_masters.items():
+        bias_master_info = master_by_temp(b_paths, b_temps)
+        bias_masters = {}
+        for t, (master, hdr) in bias_master_info.items():
             fpath = os.path.join(outdir, f"master_bias_T{t:.1f}.fits")
-            fits.writeto(fpath, master.astype(np.float32), overwrite=True)
+            fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
+            bias_masters[t] = master
 
         for g_id in sorted(set(groups)):
             if g_id < 0:
@@ -215,7 +254,7 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
     # Analyse dark frames subtracting bias
     if not dark_df.empty:
         d_paths = list(dark_df["PATH"])
-        d_temps = [fits.getheader(p).get("TEMP") for p in d_paths]
+        d_temps = list(dark_df["TEMP"])
         means: List[float] = []
         stds: List[float] = []
         frames: List[int] = []
@@ -241,10 +280,10 @@ def analyse_stage(df: pd.DataFrame, log_path: str, outdir: str, stage: str) -> N
             }
         ).to_csv(out_csv, index=False)
 
-        masters = master_by_temp(d_paths, d_temps, bias_maps=bias_masters)
-        for t, master in masters.items():
+        masters_info = master_by_temp(d_paths, d_temps, bias_maps=bias_masters)
+        for t, (master, hdr) in masters_info.items():
             fpath = os.path.join(outdir, f"master_dark_T{t:.1f}.fits")
-            fits.writeto(fpath, master.astype(np.float32), overwrite=True)
+            fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
 
         for g_id in sorted(set(groups)):
             if g_id < 0:

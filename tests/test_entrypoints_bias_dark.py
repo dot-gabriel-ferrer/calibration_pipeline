@@ -88,3 +88,6 @@ def test_entrypoints_remove_bias(tmp_path):
     rad_main(str(index_csv), str(rad_log), str(out_rad), ["pre"])
     mdark = fits.getdata(out_rad / "pre" / "master_dark_T10.0.fits")
     assert np.allclose(mdark, np.full((2, 2), 5.0))
+
+    stats = np.genfromtxt(out_rad / "pre" / "stats_dark.csv", delimiter=",", names=True)
+    assert np.allclose(stats["MEAN"], [5.0, 5.0])
