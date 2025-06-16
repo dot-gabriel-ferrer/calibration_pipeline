@@ -74,6 +74,7 @@ def _ensure_conversion(dataset_root: str) -> None:
                 with fits.open(fp) as hdul:
                     data = hdul[0].data.astype(np.float32)
                     hdr = hdul[0].header
+                # read the frame number from the FITS header whenever possible
                 fr_num = hdr.get("FRAMENUM")
                 if fr_num is None:
                     fr_num = frame_num
@@ -102,14 +103,14 @@ def _ensure_conversion(dataset_root: str) -> None:
                 rdf = pd.read_csv(rad_csv)
                 col = "Dose" if "Dose" in rdf.columns else "RadiationLevel"
                 rads = pd.to_numeric(rdf[col], errors="coerce")
-                fnums = (
+                frame_series = (
                     pd.to_numeric(rdf.get("FrameNum"), errors="coerce")
                     if "FrameNum" in rdf.columns
-                    else None
+                    else pd.Series([np.nan] * len(rdf))
                 )
                 for idx, val in enumerate(rads):
-                    if fnums is not None and pd.notna(fnums.iloc[idx]):
-                        fn = int(fnums.iloc[idx])
+                    if pd.notna(frame_series.iloc[idx]):
+                        fn = int(frame_series.iloc[idx])
                         frame_num = max(frame_num, fn + 1)
                     elif idx < len(frame_nums):
                         fn = frame_nums[idx]
@@ -124,6 +125,11 @@ def _ensure_conversion(dataset_root: str) -> None:
                 for fn in frame_nums:
                     prev_dose += step
                     rad_rows.append({"FrameNum": fn, "Dose": prev_dose})
+
+            # ensure frame numbering for subsequent directories continues from the
+            # highest frame seen so far
+            if frame_nums:
+                frame_num = max(frame_num, max(frame_nums) + 1)
 
         if rows:
             pd.DataFrame(rows).to_csv(os.path.join(dataset_root, "index.csv"), index=False)
