@@ -20,7 +20,7 @@ import argparse
 import glob
 import os
 import tempfile
-from typing import Iterable
+from typing import Iterable, List, Dict
 
 import numpy as np
 import pandas as pd
@@ -31,6 +31,12 @@ import radiation_analysis
 import fit_radiation_model
 from operation_analysis import _plot_intensity_stats
 import dose_analysis
+from bias_pipeline.bias_pipeline.steps.step4_generate_synthetic_bias import (
+    generate_synthetic_bias,
+)
+from dark_pipeline.dark_pipeline.steps.step6_generate_synthetics import (
+    generate_precise_synthetic_dark,
+)
 
 _STAGES: Iterable[str] = ("pre", "radiating", "post")
 
@@ -39,6 +45,35 @@ def _ensure_conversion(dataset_root: str) -> None:
     """Run ``radiation_variation_analysis`` to convert raw frames and index."""
     with tempfile.TemporaryDirectory() as tmp:
         radiation_variation_analysis.main(dataset_root, tmp)
+
+
+def _masters_to_npz(stage_dir: str) -> List[str]:
+    """Convert master FITS frames in *stage_dir* to ``.npz`` archives."""
+    npz_files: List[str] = []
+    for path in glob.glob(os.path.join(stage_dir, "master_*.fits")):
+        data = fits.getdata(path).astype(np.float32)
+        hdr = fits.getheader(path)
+        frame_type = "bias" if "bias" in os.path.basename(path).lower() else "dark"
+        t_exp = float(hdr.get("EXPTIME", 0.0))
+        dose_total = float(hdr.get("DOSE", 0.0))
+        dose_rate = float(hdr.get("DOSE_RATE", 0.0))
+        temp = hdr.get("TAVG")
+        if temp is None:
+            temp = hdr.get("TEMP")
+        temperature = float(temp) if temp is not None else float("nan")
+
+        out_path = os.path.splitext(path)[0] + ".npz"
+        np.savez_compressed(
+            out_path,
+            image_data=data,
+            frame_type=frame_type,
+            t_exp=t_exp,
+            dose_total=dose_total,
+            dose_rate=dose_rate,
+            temperature=temperature,
+        )
+        npz_files.append(out_path)
+    return npz_files
 
 
 def _plot_stage_stats(stage_dir: str) -> None:
@@ -66,13 +101,17 @@ def _plot_stage_stats(stage_dir: str) -> None:
         )
 
 
-def _fit_radiation_model(stage_dir: str) -> None:
+def _fit_radiation_model(stage_dir: str) -> pd.DataFrame | None:
+    """Fit radiation model for all NPZ frames in *stage_dir*."""
     model_dir = os.path.join(stage_dir, "radiation_model")
-    fit_radiation_model.main(stage_dir, model_dir)
+    df = fit_radiation_model.load_frames(stage_dir)
+    if df.empty:
+        return None
+    return fit_radiation_model.fit_model(df, model_dir)
 
 
-def _reconstruct_and_compare(stage_dir: str) -> None:
-    """Generate synthetic bias/dark and compare with masters if possible."""
+def _reconstruct_and_compare(stage_dir: str, params: pd.DataFrame | None) -> None:
+    """Generate synthetic frames from ``params`` and compare with masters."""
     bias_master = next(
         (f for f in glob.glob(os.path.join(stage_dir, "master_bias*.fits"))),
         None,
@@ -81,37 +120,53 @@ def _reconstruct_and_compare(stage_dir: str) -> None:
         (f for f in glob.glob(os.path.join(stage_dir, "master_dark*.fits"))),
         None,
     )
-    model_dir = os.path.join(stage_dir, "radiation_model")
-    a_map = os.path.join(model_dir, "A_map.fits")
-    b_map = os.path.join(model_dir, "B_map.fits")
-    if bias_master and os.path.isfile(a_map) and os.path.isfile(b_map):
-        temp = fits.getheader(bias_master).get("TAVG")
-        if temp is None:
-            temp = fits.getheader(bias_master).get("TEMP")
-        out_path = os.path.join(model_dir, "synthetic_bias.fits")
-        os.system(
-            f"python bias_pipeline/bias_pipeline/generate_bias.py --a-map {a_map} --b-map {b_map} --temperature {temp} --output {out_path}"
-        )
-        if os.path.isfile(out_path):
-            synth = fits.getdata(out_path)
-            master = fits.getdata(bias_master)
-            diff = synth - master
-            fits.writeto(
-                os.path.join(model_dir, "bias_diff.fits"),
-                diff.astype(np.float32),
-                overwrite=True,
+    if params is None:
+        return
+
+    recon_dir = os.path.join(stage_dir, "reconstruction")
+    os.makedirs(recon_dir, exist_ok=True)
+
+    coeffs: Dict[str, float] = {
+        row["param"]: float(row["value"]) for _, row in params.iterrows()
+    }
+
+    for master_path in (p for p in (bias_master, dark_master) if p):
+        arr = np.load(os.path.splitext(master_path)[0] + ".npz")
+        data = arr["image_data"].astype(np.float32)
+        ftype = str(arr["frame_type"])
+        t_exp = float(arr["t_exp"])
+        dose = float(arr["dose_total"])
+        dose_rate = float(arr["dose_rate"])
+
+        if ftype == "bias":
+            pred = coeffs.get("B0", 0.0) + coeffs.get("alpha_D", 0.0) * dose
+            synth = generate_synthetic_bias(np.full_like(data, pred), np.zeros_like(data), 0.0)
+        else:
+            pred = (
+                coeffs.get("B0", 0.0)
+                + coeffs.get("alpha_D", 0.0) * dose
+                + (coeffs.get("DC0", 0.0) + coeffs.get("beta_D", 0.0) * dose) * t_exp
+                + coeffs.get("q_mean", 0.0) * dose_rate * t_exp
+            )
+            synth = generate_precise_synthetic_dark(
+                0.0,
+                np.zeros_like(data),
+                np.zeros_like(data),
+                np.zeros_like(data, dtype=bool),
+                pred,
+                0.0,
+                0.0,
+                data.shape,
             )
 
-    dark_model = os.path.join(model_dir, "synthetic_dark.fits")
-    if dark_master and os.path.isfile(dark_model):
-        synth = fits.getdata(dark_model)
-        master = fits.getdata(dark_master)
-        diff = synth - master
-        fits.writeto(
-            os.path.join(model_dir, "dark_diff.fits"),
-            diff.astype(np.float32),
-            overwrite=True,
+        diff = synth - data
+        diff_path = os.path.join(
+            recon_dir, os.path.basename(master_path).replace(".fits", "_diff.fits")
         )
+        fits.writeto(diff_path, diff.astype(np.float32), overwrite=True)
+        png_path = diff_path.replace(".fits", ".png")
+        radiation_analysis.diff_heatmap(data, synth, png_path, "Synthetic - master")
+        np.savez_compressed(diff_path.replace(".fits", ".npz"), diff=diff)
 
 
 def run_pipeline(dataset_root: str, radiation_log: str, output_dir: str) -> None:
@@ -124,8 +179,9 @@ def run_pipeline(dataset_root: str, radiation_log: str, output_dir: str) -> None
         if not os.path.isdir(stage_dir):
             continue
         _plot_stage_stats(stage_dir)
-        _fit_radiation_model(stage_dir)
-        _reconstruct_and_compare(stage_dir)
+        _masters_to_npz(stage_dir)
+        params = _fit_radiation_model(stage_dir)
+        _reconstruct_and_compare(stage_dir, params)
 
     precision_dir = os.path.join(output_dir, "precision")
     os.makedirs(precision_dir, exist_ok=True)
