@@ -97,7 +97,13 @@ def _make_master(
     If *bias* is provided it is subtracted from each frame before combining.
     """
 
-    stack = []
+    from utils.incremental_stats import incremental_mean_std
+
+    mean = None
+    m2 = None
+    count = 0
+    datamin = np.inf
+    datamax = -np.inf
     temps = []
     means = []
     stds = []
@@ -106,7 +112,9 @@ def _make_master(
         data = fits.getdata(p).astype(np.float32)
         if bias is not None:
             data = data - bias
-        stack.append(data)
+        datamin = min(datamin, float(np.min(data)))
+        datamax = max(datamax, float(np.max(data)))
+        mean, m2, count = incremental_mean_std(data, mean, m2, count)
         t = _temperature_from_header(p)
         if t is None or not np.isfinite(t):
             if logger.isEnabledFor(logging.INFO):
@@ -115,17 +123,21 @@ def _make_master(
         means.append(float(np.mean(data)))
         stds.append(float(np.std(data)))
 
-    stack_arr = np.stack(stack, axis=0)
+    master = mean.astype(np.float32)
 
-    # Build master statistics
-    master = np.mean(stack_arr, axis=0)
     hdr = fits.Header()
-    hdr["NSOURCE"] = stack_arr.shape[0]
-    hdr["MEAN"] = float(np.mean(stack_arr))
-    hdr["MEDIAN"] = float(np.median(stack_arr))
-    hdr["STD"] = float(np.std(stack_arr))
-    hdr["DATAMIN"] = float(np.min(stack_arr))
-    hdr["DATAMAX"] = float(np.max(stack_arr))
+    hdr["NSOURCE"] = count
+    global_mean = float(np.mean(master))
+    hdr["MEAN"] = global_mean
+    hdr["MEDIAN"] = float(np.median(master))
+    if count > 0:
+        total_var = np.sum(m2) + count * np.sum((master - global_mean) ** 2)
+        denom = count * master.size
+        hdr["STD"] = float(np.sqrt(total_var / denom))
+    else:
+        hdr["STD"] = 0.0
+    hdr["DATAMIN"] = datamin
+    hdr["DATAMAX"] = datamax
 
     valid_temps = [t for t in temps if t is not None and np.isfinite(t)]
     if valid_temps:
@@ -142,16 +154,29 @@ def _make_master(
 
 def _stack_stats(paths: List[str]) -> Tuple[np.ndarray, np.ndarray]:
     """Return per-pixel mean and standard deviation for *paths*."""
-    stack = []
+    from utils.incremental_stats import incremental_mean_std
+
+    mean = None
+    m2 = None
+    count = 0
     for p in tqdm(paths, desc="Stacking", unit="frame", leave=False):
-        stack.append(fits.getdata(p).astype(np.float32))
-    arr = np.stack(stack, axis=0)
-    mean = np.mean(arr, axis=0)
-    std = np.std(arr, axis=0)
-    return mean, std
+        arr = fits.getdata(p).astype(np.float32)
+        mean, m2, count = incremental_mean_std(arr, mean, m2, count)
+
+    if mean is None or m2 is None:
+        return np.array([]), np.array([])
+
+    mean_arr = mean.astype(np.float32)
+    if count > 1:
+        std_arr = np.sqrt(m2 / count)
+    else:
+        std_arr = np.zeros_like(mean_arr)
+    return mean_arr, std_arr
 
 
-def _group_paths(df: pd.DataFrame) -> Dict[Tuple[str, str, float, float | None], List[str]]:
+def _group_paths(
+    df: pd.DataFrame,
+) -> Dict[Tuple[str, str, float, float | None], List[str]]:
     groups: Dict[Tuple[str, str, float, float | None], List[str]] = defaultdict(list)
     during_doses: List[float] = []
     irrad_stages = {"radiating", "during"}
@@ -323,7 +348,9 @@ def _save_plot(summary: pd.DataFrame, outdir: str) -> None:
                 fmt = "o" if len(x) == 1 else "-o"
                 ax.errorbar(x, y, yerr=e, fmt=fmt, label=stage)
                 ax.fill_between(x, y - e, y + e, alpha=0.2)
-                stats_lines.append(f"{stage}: \u03BC={y.mean():.1f}, \u03C3={e.mean():.1f}")
+                stats_lines.append(
+                    f"{stage}: \u03bc={y.mean():.1f}, \u03c3={e.mean():.1f}"
+                )
                 plot_data[f"{stage}_dose"] = x.to_numpy()
                 plot_data[f"{stage}_mean"] = y.to_numpy()
                 plot_data[f"{stage}_std"] = e.to_numpy()
@@ -409,9 +436,7 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
             def _fit(df: pd.DataFrame) -> tuple[float, float]:
                 if len(df) < 2:
                     if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            "Not enough points for fit (%d found)", len(df)
-                        )
+                        logger.info("Not enough points for fit (%d found)", len(df))
                     return float("nan"), float("nan")
                 coeff = np.polyfit(df["MEAN"].astype(float), df["STD"].astype(float), 1)
                 return float(coeff[0]), float(coeff[1])
@@ -434,7 +459,9 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
             ax1.plot(x[1:-1], mean[1:-1], "o-", label="mean", color="C0")
             ax2.plot(x[1:-1], std[1:-1], "s-", label="std", color="C1")
             ax2.plot(x[1:-1], fit_ir[1:-1], "--", color="C2", label="fit irradiating")
-            ax2.plot(x[1:-1], fit_no[1:-1], "--", color="C3", label="fit no irradiating")
+            ax2.plot(
+                x[1:-1], fit_no[1:-1], "--", color="C3", label="fit no irradiating"
+            )
 
             ax1.set_xlabel("Dose [kRad]")
             ax1.set_ylabel("Mean ADU", color="C0")
@@ -481,13 +508,21 @@ def _plot_bias_dark_error(summary: pd.DataFrame, outdir: str) -> None:
             ax_fit.scatter(ir_df["MEAN"], ir_df["STD"], label="irr.", color="C1")
 
             x_fit = np.linspace(float(min(sub["MEAN"])), float(max(sub["MEAN"])), 100)
-            ax_fit.plot(x_fit, a_ir * x_fit + b_ir, color="C1", ls="--", label="fit irr.")
-            ax_fit.plot(x_fit, a_no * x_fit + b_no, color="C0", ls=":", label="fit no irr.")
+            ax_fit.plot(
+                x_fit, a_ir * x_fit + b_ir, color="C1", ls="--", label="fit irr."
+            )
+            ax_fit.plot(
+                x_fit, a_no * x_fit + b_no, color="C0", ls=":", label="fit no irr."
+            )
             ax_fit.set_ylabel("STD ADU")
             ax_fit.legend()
 
-            res_no = ni_df["STD"].astype(float) - (a_no * ni_df["MEAN"].astype(float) + b_no)
-            res_ir = ir_df["STD"].astype(float) - (a_ir * ir_df["MEAN"].astype(float) + b_ir)
+            res_no = ni_df["STD"].astype(float) - (
+                a_no * ni_df["MEAN"].astype(float) + b_no
+            )
+            res_ir = ir_df["STD"].astype(float) - (
+                a_ir * ir_df["MEAN"].astype(float) + b_ir
+            )
             ax_res.scatter(ni_df["MEAN"], res_no, color="C0", label="no irr.")
             ax_res.scatter(ir_df["MEAN"], res_ir, color="C1", label="irr.")
             ax_res.axhline(0.0, color="k", ls="--")
@@ -679,7 +714,7 @@ def _plot_photometric_precision(df: pd.DataFrame, outdir: str) -> None:
     stats = (
         f"min={df['MAG_ERR'].min():.3f}\n"
         f"max={df['MAG_ERR'].max():.3f}\n"
-        f"\u03C3={df.get('MAG_ERR_STD').mean():.3f}"
+        f"\u03c3={df.get('MAG_ERR_STD').mean():.3f}"
     )
     fig.text(1.02, 0.5, stats, va="center")
     fig.tight_layout()
@@ -732,7 +767,11 @@ def _plot_error_vs_dose(df: pd.DataFrame, outdir: str) -> None:
         os.path.splitext(out_m)[0] + ".npz",
         dose=df["DOSE"].to_numpy(float),
         mag_mean=df["MAG_MEAN"].to_numpy(float),
-        mag_std=df.get("MAG_STD", pd.Series()).to_numpy(float) if "MAG_STD" in df else np.empty(0),
+        mag_std=(
+            df.get("MAG_STD", pd.Series()).to_numpy(float)
+            if "MAG_STD" in df
+            else np.empty(0)
+        ),
     )
 
     fig_a, ax_a = plt.subplots()
@@ -761,7 +800,11 @@ def _plot_error_vs_dose(df: pd.DataFrame, outdir: str) -> None:
         os.path.splitext(out_a)[0] + ".npz",
         dose=df["DOSE"].to_numpy(float),
         adu_mean=df["ADU_MEAN"].to_numpy(float),
-        adu_std=df.get("ADU_STD", pd.Series()).to_numpy(float) if "ADU_STD" in df else np.empty(0),
+        adu_std=(
+            df.get("ADU_STD", pd.Series()).to_numpy(float)
+            if "ADU_STD" in df
+            else np.empty(0)
+        ),
     )
 
 
@@ -770,8 +813,12 @@ def _pixel_precision_analysis(
 ) -> pd.DataFrame:
     """Generate per-pixel magnitude and ADU error maps for each dose."""
     irrad_stages = {"radiating", "during"}
-    bias_groups = {k: v for k, v in groups.items() if k[0] in irrad_stages and k[1] == "BIAS"}
-    dark_groups = {k: v for k, v in groups.items() if k[0] in irrad_stages and k[1] == "DARK"}
+    bias_groups = {
+        k: v for k, v in groups.items() if k[0] in irrad_stages and k[1] == "BIAS"
+    }
+    dark_groups = {
+        k: v for k, v in groups.items() if k[0] in irrad_stages and k[1] == "DARK"
+    }
     doses = sorted(set(k[2] for k in bias_groups) & set(k[2] for k in dark_groups))
     if not doses:
         if logger.isEnabledFor(logging.INFO):
@@ -789,16 +836,14 @@ def _pixel_precision_analysis(
         d_paths = [p for k, v in dark_groups.items() if k[2] == d for p in v]
         if not b_paths or not d_paths:
             if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Missing bias or dark frames for dose %s", d
-                )
+                logger.info("Missing bias or dark frames for dose %s", d)
             continue
 
         b_mean, b_std = _stack_stats(b_paths)
         _, d_std = _stack_stats(d_paths)
         full_scale = 4096 * 16.0
         signal = (full_scale - b_mean) / 2.0
-        noise = np.sqrt(np.maximum(signal, 0) + b_std ** 2 + d_std ** 2)
+        noise = np.sqrt(np.maximum(signal, 0) + b_std**2 + d_std**2)
         snr = np.where(noise > 0, signal / noise, 0.0)
         mag_err = np.where(snr > 0, 1.0857 / snr, np.inf)
         adu_err16 = noise
@@ -813,14 +858,28 @@ def _pixel_precision_analysis(
         adu12_norm = (adu_err12 - adu_err12_mean) / adu_err12_mean
 
         tag = f"{d:g}kR"
-        fits.writeto(os.path.join(outdir, f"mag_err_{tag}.fits"), mag_err.astype(np.float32), overwrite=True)
-        fits.writeto(os.path.join(outdir, f"adu_err16_{tag}.fits"), adu_err16.astype(np.float32), overwrite=True)
-        fits.writeto(os.path.join(outdir, f"adu_err12_{tag}.fits"), adu_err12.astype(np.float32), overwrite=True)
+        fits.writeto(
+            os.path.join(outdir, f"mag_err_{tag}.fits"),
+            mag_err.astype(np.float32),
+            overwrite=True,
+        )
+        fits.writeto(
+            os.path.join(outdir, f"adu_err16_{tag}.fits"),
+            adu_err16.astype(np.float32),
+            overwrite=True,
+        )
+        fits.writeto(
+            os.path.join(outdir, f"adu_err12_{tag}.fits"),
+            adu_err12.astype(np.float32),
+            overwrite=True,
+        )
 
         fig, ax = plt.subplots(figsize=(6, 5))
         im = ax.imshow(mag_norm, origin="lower", cmap="magma")
-        cbar = plt.colorbar(im, ax=ax, label="Magnitude error [mag]"+f" mean={mag_err_mean:.2f}")
-        #cbar.ax.text(1.05, 0.5, f"mean={mag_err_mean:.2f}", transform=cbar.ax.transAxes, va="center")
+        cbar = plt.colorbar(
+            im, ax=ax, label="Magnitude error [mag]" + f" mean={mag_err_mean:.2f}"
+        )
+        # cbar.ax.text(1.05, 0.5, f"mean={mag_err_mean:.2f}", transform=cbar.ax.transAxes, va="center")
         ax.set_title(f"Magnitude error {tag}")
         fig.tight_layout()
         fig.savefig(os.path.join(outdir, f"mag_err_{tag}.png"), dpi=300)
@@ -828,8 +887,10 @@ def _pixel_precision_analysis(
 
         fig, ax = plt.subplots(figsize=(6, 5))
         im = ax.imshow(adu16_norm, origin="lower", cmap="viridis")
-        cbar = plt.colorbar(im, ax=ax, label="ADU error (16 bit)"+f" mean={adu_err16_mean:.2f}")
-        #cbar.ax.text(1.05, 0.5, f"mean={adu_err16_mean:.2f}", transform=cbar.ax.transAxes, va="center")
+        cbar = plt.colorbar(
+            im, ax=ax, label="ADU error (16 bit)" + f" mean={adu_err16_mean:.2f}"
+        )
+        # cbar.ax.text(1.05, 0.5, f"mean={adu_err16_mean:.2f}", transform=cbar.ax.transAxes, va="center")
         ax.set_title(f"ADU error 16-bit {tag}")
         fig.tight_layout()
         fig.savefig(os.path.join(outdir, f"adu_err16_{tag}.png"), dpi=300)
@@ -837,8 +898,16 @@ def _pixel_precision_analysis(
 
         fig, ax = plt.subplots(figsize=(6, 5))
         im = ax.imshow(adu12_norm, origin="lower", cmap="viridis")
-        cbar = plt.colorbar(im, ax=ax, label="ADU error (12 bit)"+f" mean={adu_err12_mean:.2f}")
-        cbar.ax.text(1.05, 0.5, f"mean={adu_err12_mean:.2f}", transform=cbar.ax.transAxes, va="center")
+        cbar = plt.colorbar(
+            im, ax=ax, label="ADU error (12 bit)" + f" mean={adu_err12_mean:.2f}"
+        )
+        cbar.ax.text(
+            1.05,
+            0.5,
+            f"mean={adu_err12_mean:.2f}",
+            transform=cbar.ax.transAxes,
+            va="center",
+        )
         ax.set_title(f"ADU error 12-bit {tag}")
         fig.tight_layout()
         fig.savefig(os.path.join(outdir, f"adu_err12_{tag}.png"), dpi=300)
@@ -913,13 +982,17 @@ def _pixel_precision_analysis(
     return stats_df
 
 
-def _master_path(cal: str, stage: str, dose: float, exp: float | None, master_dir: str) -> str:
+def _master_path(
+    cal: str, stage: str, dose: float, exp: float | None, master_dir: str
+) -> str:
     """Return the path to a master frame with the given parameters."""
     name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}"
-    return os.path.join(master_dir, name.replace('/', '_') + ".fits")
+    return os.path.join(master_dir, name.replace("/", "_") + ".fits")
 
 
-def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: str) -> None:
+def _compare_stage_differences(
+    summary: pd.DataFrame, master_dir: str, outdir: str
+) -> None:
     """Store differences between initial/last irradiation values and pre/post.
 
     Heatmaps now display the percentage change relative to the reference mean
@@ -948,8 +1021,12 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
             # Heatmap of first during minus pre
             ref_row = p_pre.iloc[0]
             targ_row = dmin.iloc[0]
-            ref_path = _master_path(cal, "pre", ref_row["DOSE"], ref_row["EXPTIME"], master_dir)
-            targ_path = _master_path(cal, "radiating", targ_row["DOSE"], targ_row["EXPTIME"], master_dir)
+            ref_path = _master_path(
+                cal, "pre", ref_row["DOSE"], ref_row["EXPTIME"], master_dir
+            )
+            targ_path = _master_path(
+                cal, "radiating", targ_row["DOSE"], targ_row["EXPTIME"], master_dir
+            )
             if os.path.isfile(ref_path) and os.path.isfile(targ_path):
                 ref = fits.getdata(ref_path)
                 targ = fits.getdata(targ_path)
@@ -977,7 +1054,9 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                 plt.close()
 
                 abs_max = max(abs(vmin), abs(vmax))
-                log_norm = SymLogNorm(linthresh=abs_max * 0.01 + 1e-9, vmin=-abs_max, vmax=abs_max)
+                log_norm = SymLogNorm(
+                    linthresh=abs_max * 0.01 + 1e-9, vmin=-abs_max, vmax=abs_max
+                )
                 plt.figure(figsize=(6, 5))
                 im = plt.imshow(
                     diff_img,
@@ -997,8 +1076,12 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
             # Heatmap of post minus last during
             ref_row = dmax.iloc[0]
             targ_row = p_post.iloc[0]
-            ref_path = _master_path(cal, "radiating", ref_row["DOSE"], ref_row["EXPTIME"], master_dir)
-            targ_path = _master_path(cal, "post", targ_row["DOSE"], targ_row["EXPTIME"], master_dir)
+            ref_path = _master_path(
+                cal, "radiating", ref_row["DOSE"], ref_row["EXPTIME"], master_dir
+            )
+            targ_path = _master_path(
+                cal, "post", targ_row["DOSE"], targ_row["EXPTIME"], master_dir
+            )
             if os.path.isfile(ref_path) and os.path.isfile(targ_path):
                 ref = fits.getdata(ref_path)
                 targ = fits.getdata(targ_path)
@@ -1026,7 +1109,9 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                 plt.close()
 
                 abs_max = max(abs(vmin), abs(vmax))
-                log_norm = SymLogNorm(linthresh=abs_max * 0.01 + 1e-9, vmin=-abs_max, vmax=abs_max)
+                log_norm = SymLogNorm(
+                    linthresh=abs_max * 0.01 + 1e-9, vmin=-abs_max, vmax=abs_max
+                )
                 plt.figure(figsize=(6, 5))
                 im = plt.imshow(
                     diff_img,
@@ -1041,7 +1126,9 @@ def _compare_stage_differences(summary: pd.DataFrame, master_dir: str, outdir: s
                 plt.close()
 
     if rows:
-        pd.DataFrame(rows).to_csv(os.path.join(outdir, "stage_differences.csv"), index=False)
+        pd.DataFrame(rows).to_csv(
+            os.path.join(outdir, "stage_differences.csv"), index=False
+        )
 
 
 def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
@@ -1058,7 +1145,9 @@ def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
 
         if cal == "DARK":
             exp_values = list(sorted(cal_df["EXPTIME"].dropna().unique()))
-            groups = [(exp, cal_df[np.isclose(cal_df["EXPTIME"], exp)]) for exp in exp_values]
+            groups = [
+                (exp, cal_df[np.isclose(cal_df["EXPTIME"], exp)]) for exp in exp_values
+            ]
             if cal_df["EXPTIME"].isna().any():
                 groups.append((None, cal_df[cal_df["EXPTIME"].isna()]))
         else:
@@ -1092,14 +1181,16 @@ def _fit_dose_response(summary: pd.DataFrame, outdir: str) -> None:
             ax_top.plot(xfit, yfit, color="C1", label="fit")
             ax_top.set_ylabel("Mean ADU")
             ax_top.legend()
-    
+
             resid = y - (coeff[0] * x + coeff[1])
             ax_resid.scatter(x, resid)
             ax_resid.axhline(0.0, color="C1", ls="--")
             ax_resid.set_xlabel("Dose [kRad]")
             ax_resid.set_ylabel("Residual ADU")
-    
-            fig.suptitle(f"{cal} mean vs dose" + (f" E={exp:g}s" if exp is not None else ""))
+
+            fig.suptitle(
+                f"{cal} mean vs dose" + (f" E={exp:g}s" if exp is not None else "")
+            )
             fig.tight_layout()
             fname = f"dose_model_{cal.lower()}"
             if exp is not None:
@@ -1148,7 +1239,9 @@ def _fit_dose_rate_response(summary: pd.DataFrame, outdir: str) -> None:
 
         if cal == "DARK":
             exp_values = list(sorted(cal_df["EXPTIME"].dropna().unique()))
-            groups = [(exp, cal_df[np.isclose(cal_df["EXPTIME"], exp)]) for exp in exp_values]
+            groups = [
+                (exp, cal_df[np.isclose(cal_df["EXPTIME"], exp)]) for exp in exp_values
+            ]
             if cal_df["EXPTIME"].isna().any():
                 groups.append((None, cal_df[cal_df["EXPTIME"].isna()]))
         else:
@@ -1164,11 +1257,12 @@ def _fit_dose_rate_response(summary: pd.DataFrame, outdir: str) -> None:
                     )
                 continue
 
-            X = np.stack([
-                np.ones(len(sub)),
-                sub["DOSE"].to_numpy(float),
-                sub["DOSE_RATE"].to_numpy(float),
-            ],
+            X = np.stack(
+                [
+                    np.ones(len(sub)),
+                    sub["DOSE"].to_numpy(float),
+                    sub["DOSE_RATE"].to_numpy(float),
+                ],
                 axis=1,
             )
 
@@ -1196,7 +1290,9 @@ def _fit_dose_rate_response(summary: pd.DataFrame, outdir: str) -> None:
 
             fig, (ax_m, ax_s) = plt.subplots(1, 2, figsize=(8, 4))
             ax_m.scatter(pred_mean, y_mean, label="mean")
-            ax_m.plot([y_mean.min(), y_mean.max()], [y_mean.min(), y_mean.max()], "C1--")
+            ax_m.plot(
+                [y_mean.min(), y_mean.max()], [y_mean.min(), y_mean.max()], "C1--"
+            )
             ax_m.set_xlabel("Predicted MEAN")
             ax_m.set_ylabel("Measured MEAN")
             ax_m.grid(True, ls="--", alpha=0.5)
@@ -1255,9 +1351,7 @@ def _fit_base_level_trend(summary: pd.DataFrame, outdir: str) -> None:
         grouped = cal_df.groupby("DOSE")["MEAN"].mean().reset_index()
         if len(grouped) < 2:
             if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Not enough points to fit base level trend for %s", cal
-                )
+                logger.info("Not enough points to fit base level trend for %s", cal)
             continue
 
         x = grouped["DOSE"].astype(float)
@@ -1341,15 +1435,22 @@ def _stage_base_level_diff(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
         if not r_first.empty and not p_pre.empty:
             diff = float(r_first["MEAN"].mean() - p_pre["MEAN"].mean())
             diffs[0] = diff
-            rows.append({"CALTYPE": cal, "CMP": "first_pre", "DOSE": min_d, "DIFF": diff})
+            rows.append(
+                {"CALTYPE": cal, "CMP": "first_pre", "DOSE": min_d, "DIFF": diff}
+            )
 
         if not r_last.empty and not p_post.empty:
             diff = float(r_last["MEAN"].mean() - p_post["MEAN"].mean())
             diffs[1] = diff
-            rows.append({"CALTYPE": cal, "CMP": "last_post", "DOSE": max_d, "DIFF": diff})
+            rows.append(
+                {"CALTYPE": cal, "CMP": "last_post", "DOSE": max_d, "DIFF": diff}
+            )
 
         valid = [d for d in diffs if np.isfinite(d)]
-        doses = [min_d if np.isfinite(diffs[0]) else None, max_d if np.isfinite(diffs[1]) else None]
+        doses = [
+            min_d if np.isfinite(diffs[0]) else None,
+            max_d if np.isfinite(diffs[1]) else None,
+        ]
         plot_x = [d for d in doses if d is not None]
         plot_y = valid
         if plot_x:
@@ -1431,7 +1532,7 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
 
         dr16 = 65536.0 - base16
         dr12 = 4096.0 - base12
-        noise = float(np.sqrt(bias_std ** 2 + dark_std ** 2))
+        noise = float(np.sqrt(bias_std**2 + dark_std**2))
         noise_mag = float(1.0857 * noise / dr16) if dr16 > 0 else float("inf")
 
         dr16_vals.append(dr16)
@@ -1480,7 +1581,9 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     # 16-bit dynamic range
     fig16, (ax16, ax16_red) = plt.subplots(2, 1, sharex=True)
     ax16.plot(doses, dr16_vals, "o-")
-    ax16.fill_between(doses, np.array(dr16_vals) - dr_err, np.array(dr16_vals) + dr_err, alpha=0.2)
+    ax16.fill_between(
+        doses, np.array(dr16_vals) - dr_err, np.array(dr16_vals) + dr_err, alpha=0.2
+    )
     ax16.axhline(65536, color="C2", ls="--", label="16-bit max")
     ax16.set_ylabel("Dynamic range [ADU]")
     ax16.set_title("16-bit dynamic range vs dose")
@@ -1499,7 +1602,12 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
     # 12-bit dynamic range
     fig12, (ax12, ax12_red) = plt.subplots(2, 1, sharex=True)
     ax12.plot(doses, dr12_vals, "s-")
-    ax12.fill_between(doses, np.array(dr12_vals) - dr_err/16, np.array(dr12_vals) + dr_err/16, alpha=0.2)
+    ax12.fill_between(
+        doses,
+        np.array(dr12_vals) - dr_err / 16,
+        np.array(dr12_vals) + dr_err / 16,
+        alpha=0.2,
+    )
     ax12.axhline(4096, color="C3", ls="--", label="12-bit max")
     ax12.set_ylabel("Dynamic range [ADU]")
     ax12.set_title("12-bit dynamic range vs dose")
@@ -1543,7 +1651,9 @@ def _dynamic_range_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataFrame:
 
     # Magnitude error and limit vs dose
     mag_lim_vals = -2.5 * np.log10(np.maximum(dr16_vals, 1e-9) / 65536.0)
-    mag_lim_err = (2.5 / np.log(10)) * (np.array(noise_vals) / np.maximum(dr16_vals, 1e-9))
+    mag_lim_err = (2.5 / np.log(10)) * (
+        np.array(noise_vals) / np.maximum(dr16_vals, 1e-9)
+    )
 
     fig_mag, (ax_err, ax_lim) = plt.subplots(2, 1, sharex=True)
     ax_err.plot(doses, noise_mag_vals, "o-")
@@ -1608,7 +1718,7 @@ def _relative_precision_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataF
             base12 = base16 / 16.0
             dr16 = 65536.0 - base16
             dr12 = 4096.0 - base12
-            noise = float(np.sqrt(bias_std ** 2 + dark_std ** 2))
+            noise = float(np.sqrt(bias_std**2 + dark_std**2))
             noise12 = noise / 16.0
             mag16 = float(1.0857 * noise / dr16) if dr16 > 0 else float("inf")
             mag12 = float(1.0857 * noise12 / dr12) if dr12 > 0 else float("inf")
@@ -1725,6 +1835,7 @@ def _relative_precision_analysis(summary: pd.DataFrame, outdir: str) -> pd.DataF
 
     return df
 
+
 def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
     if verbose:
         logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -1736,7 +1847,7 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
     df = df[df.get("BADFITS", False) == False]
 
     logger.info("Grouping input files")
-    
+
     groups = _group_paths(df)
 
     logger.info("Generating master frames")
@@ -1753,7 +1864,9 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
             continue
         master, hdr = _make_master(paths)
         bias_masters[(stage, dose)] = master
-        name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}".replace('/', '_')
+        name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}".replace(
+            "/", "_"
+        )
         fpath = os.path.join(master_dir, name + ".fits")
         fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
         records.append(
@@ -1773,7 +1886,9 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
     ):
         if cal == "BIAS":
             continue
-        name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}".replace('/', '_')
+        name = f"master_{cal.lower()}_{stage}_D{dose:g}kR_E{exp if exp is not None else 'none'}".replace(
+            "/", "_"
+        )
         fpath = os.path.join(master_dir, name + ".fits")
 
         if os.path.exists(fpath):
@@ -1786,18 +1901,20 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
             master, hdr = _make_master(paths, bias=bias)
             fits.writeto(fpath, master.astype(np.float32), hdr, overwrite=True)
 
-        records.append({
-            "STAGE": stage,
-            "CALTYPE": cal,
-            "DOSE": dose,
-            "EXPTIME": exp,
-            "MEAN": hdr["MEAN"],
-            "STD": hdr["STD"],
-        })
+        records.append(
+            {
+                "STAGE": stage,
+                "CALTYPE": cal,
+                "DOSE": dose,
+                "EXPTIME": exp,
+                "MEAN": hdr["MEAN"],
+                "STD": hdr["STD"],
+            }
+        )
 
     summary = pd.DataFrame.from_records(records)
     logger.info("Estimating dose rates")
-    
+
     rate_df = _estimate_dose_rate(df)
     if not rate_df.empty:
         summary = summary.merge(
@@ -1816,8 +1933,12 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
     _plot_bias_dark_error(summary, os.path.join(output_dir, "plots"))
     _plot_dose_rate_effect(summary, os.path.join(output_dir, "plots"))
 
-    pix_df = _pixel_precision_analysis(groups, os.path.join(output_dir, "pixel_precision"))
-    _compare_stage_differences(summary, master_dir, os.path.join(output_dir, "analysis"))
+    pix_df = _pixel_precision_analysis(
+        groups, os.path.join(output_dir, "pixel_precision")
+    )
+    _compare_stage_differences(
+        summary, master_dir, os.path.join(output_dir, "analysis")
+    )
     _fit_dose_rate_response(summary, os.path.join(output_dir, "analysis"))
     _fit_dose_response(summary, os.path.join(output_dir, "analysis"))
     _fit_base_level_trend(summary, os.path.join(output_dir, "analysis"))
@@ -1833,9 +1954,13 @@ def main(index_csv: str, output_dir: str, verbose: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Analyse calibration frames by radiation dose")
+    parser = argparse.ArgumentParser(
+        description="Analyse calibration frames by radiation dose"
+    )
     parser.add_argument("index_csv", help="Path to index.csv")
     parser.add_argument("output_dir", help="Directory for results")
-    parser.add_argument("--verbose", action="store_true", help="Enable informational logging")
+    parser.add_argument(
+        "--verbose", action="store_true", help="Enable informational logging"
+    )
     args = parser.parse_args()
     main(args.index_csv, args.output_dir, args.verbose)
