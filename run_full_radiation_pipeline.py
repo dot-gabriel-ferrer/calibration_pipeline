@@ -330,6 +330,7 @@ def run_pipeline(
     *,
     ignore_temp: bool = False,
     verbose: bool = False,
+    group_by_dose: bool = False,
 ) -> None:
     """Run the complete irradiation workflow.
 
@@ -356,6 +357,7 @@ def run_pipeline(
         output_dir,
         _STAGES,
         ignore_temp=ignore_temp,
+        group_by_dose=group_by_dose,
     )
 
     for stage in _STAGES:
@@ -385,6 +387,11 @@ def main() -> None:
         action="store_true",
         help="Do not group frames by temperature",
     )
+    parser.add_argument(
+        "--group-by-dose",
+        action="store_true",
+        help="Group all frames for a dose when radiation is constant",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -403,6 +410,7 @@ def main() -> None:
         args.output_dir,
         ignore_temp=args.ignore_temp,
         verbose=args.verbose,
+        group_by_dose=args.group_by_dose,
     )
 
 
