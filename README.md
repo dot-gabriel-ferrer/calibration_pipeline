@@ -273,7 +273,7 @@ precision.
 python run_full_radiation_pipeline.py \
     path/to/irrad_dataset \
     path/to/radiationLogCompleto.csv \
-    output_dir/
+    output_dir/ [--verbose]
 
 Use ``--ignore-temp`` to combine all frames regardless of temperature when
 building masters.
@@ -284,5 +284,7 @@ with all intermediate results, plots and radiation model fits.  Additional
 precision metrics are stored under `output_dir/precision/`.
 
 The script also recognises datasets arranged as ``<dose>kRads/`` directories with
-``fits/`` and an optional ``radiationLogDef.csv`` inside each one. When the log
-is missing the dose is distributed linearly between successive directories.
+``fits/`` and an optional ``radiationLogDef.csv`` inside each one. In this layout
+the pipeline reads the already converted FITS from the ``fits/`` subfolder
+instead of the raw frames. When the log is missing the dose is distributed
+linearly between successive directories.
