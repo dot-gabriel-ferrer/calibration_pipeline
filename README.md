@@ -290,3 +290,19 @@ The script also recognises datasets arranged as ``<dose>kRads/`` directories wit
 the pipeline reads the already converted FITS from the ``fits/`` subfolder
 instead of the raw frames. When the log is missing the dose is distributed
 linearly between successive directories.
+
+## Full dose analysis
+
+`run_full_analysis_pipeline.py` provides a thin wrapper around
+`run_full_analysis_radiation.run_pipeline`. It processes irradiated
+folders arranged as `<dose>kRads/` with a `fits/` subdirectory and
+produces the same outputs as the radiation pipeline.
+
+```bash
+python run_full_analysis_pipeline.py \
+    path/to/dose_dirs \
+    output_dir/ [--verbose]
+```
+
+Use ``--ignore-temp`` to group all frames regardless of temperature.
+
