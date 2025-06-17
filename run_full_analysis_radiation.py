@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import glob
 from typing import Dict, Iterable, List
 
 import numpy as np
@@ -32,21 +33,61 @@ from run_full_radiation_pipeline import _ensure_conversion
 logger = logging.getLogger(__name__)
 
 
+def _collect_rad_logs(dataset_root: str) -> pd.DataFrame:
+    """Return concatenated radiation logs found under ``dataset_root``."""
+
+    patterns = [
+        os.path.join(dataset_root, "**", "radiationLog.csv"),
+        os.path.join(dataset_root, "**", "radiationLogDef.csv"),
+        os.path.join(dataset_root, "**", "radiationLogCompleto.csv"),
+    ]
+    frames: List[pd.DataFrame] = []
+    for pat in patterns:
+        for path in sorted(glob.glob(pat, recursive=True)):
+            if os.path.isfile(path):
+                try:
+                    frames.append(pd.read_csv(path))
+                except Exception as exc:
+                    logger.warning("Failed to read radiation log %s: %s", path, exc)
+    if frames:
+        return pd.concat(frames, ignore_index=True)
+    return pd.DataFrame()
+
+
 def _build_frame_table(dataset_root: str) -> pd.DataFrame:
     """Return a DataFrame with dose and timestamp for each FITS file."""
 
     index_csv = os.path.join(dataset_root, "index.csv")
     rad_csv = os.path.join(dataset_root, "radiationLogCompleto.csv")
     idx_df = pd.read_csv(index_csv)
-    rad_df = pd.read_csv(rad_csv)
 
-    dose_col = "Dose" if "Dose" in rad_df.columns else "RadiationLevel"
-    doses = pd.to_numeric(rad_df[dose_col], errors="coerce").tolist()
-    frames = (
-        pd.to_numeric(rad_df.get("FrameNum"), errors="coerce")
-        if "FrameNum" in rad_df.columns
-        else pd.Series(range(len(rad_df)))
-    ).tolist()
+    rad_df = pd.DataFrame()
+    if os.path.isfile(rad_csv):
+        try:
+            rad_df = pd.read_csv(rad_csv)
+        except Exception as exc:
+            logger.warning("Failed to read %s: %s", rad_csv, exc)
+
+    if rad_df.empty:
+        rad_df = _collect_rad_logs(dataset_root)
+        if not rad_df.empty and not os.path.isfile(rad_csv):
+            rad_df.to_csv(rad_csv, index=False)
+            logger.info("Synthesised radiation log at %s", rad_csv)
+
+    if not rad_df.empty:
+        dose_col = "Dose" if "Dose" in rad_df.columns else "RadiationLevel"
+        if dose_col in rad_df.columns:
+            doses = pd.to_numeric(rad_df[dose_col], errors="coerce").tolist()
+        else:
+            doses = [np.nan] * len(rad_df)
+        frames = (
+            pd.to_numeric(rad_df.get("FrameNum"), errors="coerce")
+            if "FrameNum" in rad_df.columns
+            else pd.Series(range(len(rad_df)))
+        ).tolist()
+    else:
+        doses = []
+        frames = []
     dose_map: Dict[int, float] = {int(f): float(d) for f, d in zip(frames, doses)}
 
     rows: List[dict[str, float]] = []
@@ -132,6 +173,13 @@ def run_pipeline(
 
     logger.info("Preparing dataset under %s", dataset_root)
     _ensure_conversion(dataset_root)
+
+    rad_csv = os.path.join(dataset_root, "radiationLogCompleto.csv")
+    if not os.path.isfile(rad_csv):
+        rad_df = _collect_rad_logs(dataset_root)
+        if not rad_df.empty:
+            rad_df.to_csv(rad_csv, index=False)
+            logger.info("Synthesised radiation log at %s", rad_csv)
 
     info_df = _build_frame_table(dataset_root)
     os.makedirs(output_dir, exist_ok=True)
