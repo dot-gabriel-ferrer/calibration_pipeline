@@ -306,3 +306,13 @@ python run_full_analysis_pipeline.py \
 
 Use ``--ignore-temp`` to group all frames regardless of temperature.
 
+
+## Data reduction CLI
+
+`reduction_cli.py` provides an interactive terminal interface to configure and monitor a three-step reduction pipeline (sdp1, sdp2, sdp3). Run it with:
+
+```bash
+python reduction_cli.py
+```
+
+At the prompt you can configure directories with `config STEP INPUT_DIR OUTPUT_DIR`, execute the pipeline with `run` and inspect progress with `status`.
